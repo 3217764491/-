@@ -139,9 +139,9 @@
   <footer class="composer">
     <div class="thumbs" id="thumbs"></div>
     <div class="input-row">
-      <!-- 图片按钮：由 JS 分发到浏览器/RLGG 两套调用之一 -->
+      <!-- 图片按钮：浏览器端用，RLGG 端会被 JS 隐藏，改用 Lua 原生按钮 -->
       <div class="icon-btn" id="pickBtn" title="发送图片">🖼️</div>
-      <!-- 浏览器端用：隐藏的 file input -->
+      <!-- 浏览器端专用：隐藏的 file input -->
       <input type="file" id="fileInput" accept="image/*" multiple hidden>
       <textarea id="input" rows="1" placeholder="输入消息，Enter 发送…"></textarea>
       <button class="send-btn" id="sendBtn">发送</button>
@@ -182,20 +182,18 @@ let pending = [];
  *  ★ 图片选择 —— 两套调用完全分离 ★
  * ========================================================= */
 
-/* ---------- ① 浏览器端：走 <input type="file"> ---------- */
+/* ---------- ① 浏览器端调用（走 <input type="file">） ---------- */
 function browserPickImage() {
   fileInput.click();
 }
 
-/* ---------- ② RLGG 端：走 prompt 触发 Lua 脚本选择器 ---------- */
+/* ---------- ② RLGG 端调用（走 Lua 原生按钮，JS 不处理） ---------- */
+// 说明：RLGG 环境下 HTML 里的 🖼️ 会被隐藏，
+//       图片选择由 Lua 侧的 📷 按钮触发，走 gg.choice + 脚本选择器，
+//       选完图通过 evaluateJavascript 调用 window.receiveImageFromNative
 function rlggPickImage() {
-  try {
-    // Lua 端 WebChromeClient.onJsPrompt 拦截到 "__PICK_PHOTO__" 后
-    // 会弹出原生 gg.choice，用户选完后把 Base64 通过 evaluateJavascript 回传
-    prompt("__PICK_PHOTO__", "");
-  } catch (e) {
-    showToast('调用原生选图失败：' + e.message);
-  }
+  // 理论上不会走到这里（RLGG 下按钮已隐藏），保留作为兜底
+  showToast('请在右下角使用原生 📷 按钮选择图片');
 }
 
 /* ---------- ③ 统一入口：根据环境自动分发 ---------- */
@@ -531,7 +529,7 @@ fileInput.addEventListener('change', (e) => {
   fileInput.value = '';
 });
 
-/* 图片按钮：两套调用自动分发 */
+/* 图片按钮点击（浏览器端有效；RLGG 端按钮会隐藏，走 Lua 原生按钮） */
 pickBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   e.preventDefault();
@@ -569,11 +567,17 @@ document.addEventListener('drop', (e) => {
   }
 });
 
-/* 页面加载后自动加入房间 */
+/* =========================================================
+ *  页面加载后自动加入房间
+ * ========================================================= */
 window.addEventListener('load', () => {
   connectToMQTT();
+
   if (isRLGG) {
-    console.log('[ChatRoom] 运行环境：RLGG WebView —— 使用脚本选择器');
+    // ★ 关键：RLGG 环境下隐藏 HTML 的 🖼️ 按钮
+    //   图片选择改由 Lua 侧的原生 📷 按钮触发
+    if (pickBtn) pickBtn.style.display = 'none';
+    console.log('[ChatRoom] 运行环境：RLGG WebView —— 使用 Lua 原生按钮选图');
   } else {
     console.log('[ChatRoom] 运行环境：浏览器 —— 使用 <input type="file">');
   }
