@@ -62,6 +62,15 @@
   .msg.me .sender{color:#d0e8ff;text-align:right}
   .bubble .text{white-space:pre-wrap}
 
+  /* 系统消息样式 */
+  .msg-system{
+    display:flex;justify-content:center;margin:6px 0;
+  }
+  .msg-system span{
+    background:#dcdfe3;color:#555;font-size:12px;
+    padding:4px 12px;border-radius:12px;
+  }
+
   .imgs{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
   .bubble .text + .imgs{margin-top:8px}
   .img-wrap{
@@ -156,6 +165,7 @@ let client = null;
 let myNickname = '';
 let myRoomId = '';
 let isConnected = false;
+let hasJoined = false; // 防止重复发送加入消息
 
 const messagesEl  = document.getElementById('messages');
 const inputEl     = document.getElementById('input');
@@ -283,6 +293,17 @@ function addMessage(sender, text, images, isMe) {
   scrollToBottom();
 }
 
+/* 添加系统消息提示（有人加入房间） */
+function addSystemMessage(text) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-system';
+  const span = document.createElement('span');
+  span.textContent = text;
+  wrap.appendChild(span);
+  messagesEl.appendChild(wrap);
+  scrollToBottom();
+}
+
 /* =========================================================
  *  待发送图片缩略图
  * ========================================================= */
@@ -301,7 +322,6 @@ function renderThumbs() {
   });
 }
 
-// 限制图片大小并压缩（MQTT 免费版限制大概 1MB）
 function handleFiles(files) {
   Array.from(files).forEach(f => {
     if (!f || !f.type || !f.type.startsWith('image/')) return;
@@ -325,12 +345,12 @@ function connectToMQTT() {
 
   myNickname = nicknameIn.value.trim() || '匿名';
   myRoomId = roomIdIn.value.trim() || 'room1';
+  hasJoined = false;
 
   joinBtn.disabled = true;
   statusText.textContent = '正在连接 MQTT 服务器...';
   statusText.className = 'status';
 
-  // 连接 EMQX 公共服务器
   client = mqtt.connect(MQTT_BROKER);
 
   client.on('connect', () => {
@@ -338,13 +358,25 @@ function connectToMQTT() {
     statusText.textContent = '✅ 已连接，正在订阅房间...';
     statusText.className = 'status online';
     
-    // 订阅房间主题
     const topic = 'chat/' + myRoomId;
     client.subscribe(topic, (err) => {
       if (!err) {
         statusText.textContent = '✅ 已进入房间：' + myRoomId;
         joinBtn.disabled = false;
         showToast('成功进入房间！');
+
+        // 关键点：加入房间后，发布一条系统加入消息
+        if (!hasJoined) {
+          hasJoined = true;
+          const joinPayload = JSON.stringify({
+            type: 'join',
+            sender: myNickname,
+            senderId: client.options.clientId,
+            timestamp: Date.now()
+          });
+          client.publish(topic, joinPayload, { qos: 0 });
+        }
+
       } else {
         statusText.textContent = '❌ 订阅房间失败：' + err.message;
         joinBtn.disabled = false;
@@ -355,9 +387,16 @@ function connectToMQTT() {
   client.on('message', (topic, payload) => {
     try {
       const data = JSON.parse(payload.toString());
-      // 如果是自己发的（通过ID比对），忽略，因为本地已经显示过了
+      // 忽略自己发的消息（包括自己的加入消息）
       if (data.senderId === client.options.clientId) return;
-      addMessage(data.sender, data.text, data.images, false);
+
+      if (data.type === 'join') {
+        // 收到别人加入房间的消息
+        addSystemMessage(`👤 ${data.sender} 加入了房间`);
+      } else {
+        // 普通聊天消息
+        addMessage(data.sender, data.text, data.images, false);
+      }
     } catch (e) {
       console.warn('解析消息失败', e);
     }
@@ -385,11 +424,10 @@ function send() {
   pending = []; renderThumbs();
   inputEl.value = ''; autoGrow();
 
-  // 本地先显示
   addMessage(myNickname, text, imgs, true);
 
-  // 构造消息并发布到 MQTT
   const payload = JSON.stringify({
+    type: 'message', // 普通消息类型
     sender: myNickname,
     senderId: client.options.clientId,
     text: text,
@@ -427,7 +465,6 @@ fileInput.addEventListener('change', (e) => {
 
 joinBtn.addEventListener('click', connectToMQTT);
 
-// 粘贴图片
 document.addEventListener('paste', (e) => {
   const items = e.clipboardData && e.clipboardData.items;
   if (!items) return;
@@ -441,7 +478,6 @@ document.addEventListener('paste', (e) => {
   if (files.length) { e.preventDefault(); handleFiles(files); showToast('已添加 ' + files.length + ' 张图片'); }
 });
 
-// 拖拽图片
 ['dragenter','dragover'].forEach(ev => document.addEventListener(ev, e => e.preventDefault()));
 document.addEventListener('drop', (e) => {
   e.preventDefault();
@@ -450,7 +486,6 @@ document.addEventListener('drop', (e) => {
   }
 });
 
-/* 初始化 */
 statusText.textContent = '请填写昵称和房间号，点击“加入房间”';
 autoGrow();
 </script>
