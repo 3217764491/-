@@ -58,7 +58,6 @@
   .msg.me .sender{color:#d0e8ff;text-align:right}
   .bubble .text{white-space:pre-wrap}
 
-  /* 系统消息样式 */
   .msg-system{
     display:flex;justify-content:center;margin:6px 0;
   }
@@ -143,7 +142,7 @@
   <footer class="composer">
     <div class="thumbs" id="thumbs"></div>
     <div class="input-row">
-      <!-- ★ 改动1：label 改为 div，改用 JS 分发（浏览器走 file input，RLGG 走 AndroidBridge） -->
+      <!-- 图片按钮：点击后由 JS 分发到两套调用之一 -->
       <div class="icon-btn" id="pickBtn" title="发送图片">🖼️</div>
       <input type="file" id="fileInput" accept="image/*" multiple hidden>
       <textarea id="input" rows="1" placeholder="输入消息，Enter 发送…"></textarea>
@@ -155,7 +154,7 @@
 
 <script>
 /* =========================================================
- *  环境检测：RLGG WebView 还是普通浏览器
+ *  环境检测
  * ========================================================= */
 const isRLGG = (typeof AndroidBridge !== 'undefined' && AndroidBridge !== null);
 
@@ -182,25 +181,39 @@ const pickBtn     = document.getElementById('pickBtn');
 let pending = [];
 
 /* =========================================================
- *  图片选择分发器
+ *  ★ 图片选择 —— 两套调用完全分离 ★
  * ========================================================= */
-function pickImages() {
-  if (isRLGG) {
-    // RLGG 环境：调用 Lua 层文件选择器
+
+/* ---------- ① 浏览器端调用 ---------- */
+function browserPickImage() {
+  // 直接触发隐藏的 <input type="file">
+  fileInput.click();
+}
+
+/* ---------- ② RLGG 端调用 ---------- */
+function rlggPickImage() {
+  if (typeof AndroidBridge !== 'undefined' && AndroidBridge &&
+      typeof AndroidBridge.requestPhoto === 'function') {
     try {
-      AndroidBridge.requestPhoto();
+      AndroidBridge.requestPhoto();   // 通知 Lua 层弹原生选择器
     } catch (e) {
       showToast('调用原生选图失败：' + e.message);
     }
   } else {
-    // 浏览器环境：直接触发 input[type=file]
-    fileInput.click();
+    showToast('⚠️ 原生选图接口不可用');
   }
 }
 
-/* =========================================================
- *  接收 Lua 回传的图片（Base64）
- * ========================================================= */
+/* ---------- ③ 统一入口：自动分发 ---------- */
+function pickImages() {
+  if (isRLGG) {
+    rlggPickImage();      // RLGG 环境 → 走 Lua 原生选择器
+  } else {
+    browserPickImage();   // 浏览器环境 → 走 input[type=file]
+  }
+}
+
+/* ---------- ④ 接收 Lua 回传的图片（Base64） ---------- */
 window.receiveImageFromNative = function(base64Data, fileName) {
   if (!base64Data) return;
   var mime = (base64Data.match(/^data:(.*?);/) || [,'image/png'])[1];
@@ -213,9 +226,7 @@ window.receiveImageFromNative = function(base64Data, fileName) {
   showToast('已添加 1 张图片');
 };
 
-/* =========================================================
- *  接收 Lua 的错误回调
- * ========================================================= */
+/* ---------- ⑤ 接收 Lua 的错误回调 ---------- */
 window.receiveErrorFromNative = function(msg) {
   showToast('⚠️ ' + msg);
 };
@@ -368,6 +379,7 @@ function renderThumbs() {
   });
 }
 
+/* 浏览器 file input 回调 */
 function handleFiles(files) {
   Array.from(files).forEach(f => {
     if (!f || !f.type || !f.type.startsWith('image/')) return;
@@ -400,7 +412,6 @@ function connectToMQTT() {
   statusText.textContent = '正在连接 MQTT 服务器...';
   statusText.className = 'status';
 
-  // ★ 改动3：加连接参数，兼容 Android WebView
   client = mqtt.connect(MQTT_BROKER, {
     clientId: 'web_' + Math.random().toString(16).substr(2, 8),
     clean: true,
@@ -520,25 +531,28 @@ inputEl.addEventListener('keydown', (e) => {
 
 sendBtn.addEventListener('click', send);
 
+/* 浏览器 file input 变更 */
 fileInput.addEventListener('change', (e) => {
   handleFiles(e.target.files);
   fileInput.value = '';
 });
 
-// ★ 选图按钮：统一走 pickImages() 分发
+/* 图片按钮 → 自动分发到 browserPickImage / rlggPickImage */
 pickBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   e.preventDefault();
   pickImages();
 });
 
-// 自动加入逻辑
+/* 自动加入逻辑 */
 nicknameIn.addEventListener('change', connectToMQTT);
 roomIdIn.addEventListener('change', connectToMQTT);
 nicknameIn.addEventListener('keydown', (e) => { if(e.key === 'Enter') connectToMQTT(); });
 roomIdIn.addEventListener('keydown', (e) => { if(e.key === 'Enter') connectToMQTT(); });
 
+/* 粘贴图片（仅浏览器端有效） */
 document.addEventListener('paste', (e) => {
+  if (isRLGG) return;  // RLGG 端不支持粘贴
   const items = e.clipboardData && e.clipboardData.items;
   if (!items) return;
   const files = [];
@@ -551,22 +565,23 @@ document.addEventListener('paste', (e) => {
   if (files.length) { e.preventDefault(); handleFiles(files); showToast('已添加 ' + files.length + ' 张图片'); }
 });
 
+/* 拖拽上传（仅浏览器端有效） */
 ['dragenter','dragover'].forEach(ev => document.addEventListener(ev, e => e.preventDefault()));
 document.addEventListener('drop', (e) => {
+  if (isRLGG) return;
   e.preventDefault();
   if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
     handleFiles(e.dataTransfer.files);
   }
 });
 
-// 页面加载后自动加入默认房间
+/* 页面加载后自动加入 */
 window.addEventListener('load', () => {
   connectToMQTT();
-  // 首次进入提示当前环境
   if (isRLGG) {
-    console.log('[ChatRoom] 运行在 RLGG WebView 中，使用原生选图');
+    console.log('[ChatRoom] 运行环境：RLGG WebView —— 使用原生选图接口');
   } else {
-    console.log('[ChatRoom] 运行在浏览器中，使用 file input');
+    console.log('[ChatRoom] 运行环境：浏览器 —— 使用 <input type="file">');
   }
 });
 
