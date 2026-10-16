@@ -74,19 +74,16 @@
   }
   .clear-btn:active{background:#ffe9e9;color:#d64545}
 
-  /* ★★★ 消息区包裹层：用于承载悬浮按钮 ★★★ */
-  .msg-wrap{
-    flex:1 1 auto;
-    min-height:0;
-    position:relative;
-    overflow:hidden;
-    display:flex;
-    flex-direction:column;
+  /* ★ 消息区包一层，方便定位悬浮按钮 */
+  .messages-wrap{
+    flex:1 1 auto;position:relative;overflow:hidden;
+    display:flex;flex-direction:column;
   }
+
   .messages{
-    flex:1 1 auto;min-height:0;
-    overflow-y:auto;-webkit-overflow-scrolling:touch;
-    padding:12px;display:flex;flex-direction:column;gap:12px;
+    flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    padding:12px;padding-right:56px;   /* ★ 给右侧悬浮按钮留位置 */
+    display:flex;flex-direction:column;gap:12px;
   }
   .msg{display:flex;gap:6px;align-items:flex-start;animation:fadeIn .22s ease}
   .msg.me{flex-direction:row-reverse}
@@ -120,30 +117,32 @@
   }
   .img-wrap img{width:110px;height:110px;object-fit:cover;display:block}
 
-  /* ★★★ 悬浮在消息区右侧的上下箭头 ★★★ */
-  .nav-float{
+  /* ★★★ 悬浮上下按钮：固定在消息区右下角 ★★★ */
+  .nav-stack{
     position:absolute;
-    right:8px;
-    bottom:14px;
+    right:10px;
+    bottom:20px;
+    z-index:50;
     display:flex;
     flex-direction:column;
-    gap:10px;
-    z-index:50;
+    gap:8px;
+    pointer-events:none;   /* 只让按钮本身接收点击 */
   }
   .nav-btn{
-    width:38px;height:38px;border-radius:50%;
-    background:rgba(0,0,0,.5);
-    color:#fff;font-size:15px;
+    pointer-events:auto;
+    width:38px;height:38px;
+    border-radius:50%;
+    background:rgba(255,255,255,.92);
+    color:#0b93f6;
+    font-size:14px;
     display:grid;place-items:center;
+    box-shadow:0 2px 8px rgba(0,0,0,.18);
     user-select:none;cursor:pointer;
-    -webkit-backdrop-filter:blur(6px);
-    backdrop-filter:blur(6px);
-    box-shadow:0 2px 8px rgba(0,0,0,.25);
-    transition:transform .12s,background .15s;
+    border:1px solid rgba(0,0,0,.05);
+    transition:transform .12s, background .15s;
   }
   .nav-btn:active{
-    background:rgba(11,147,246,.85);
-    transform:scale(.9);
+    background:#0b93f6;color:#fff;transform:scale(.92);
   }
 
   .composer{
@@ -221,13 +220,17 @@
     </div>
   </div>
 
-  <!-- ★★★ 消息区 + 悬浮上下箭头 ★★★ -->
-  <div class="msg-wrap">
+  <!-- ★ 消息区外层包一层，用于定位悬浮按钮 -->
+  <div class="messages-wrap">
+
     <main class="messages" id="messages"></main>
-    <div class="nav-float">
+
+    <!-- ★★★ 悬浮上下按钮：固定消息区右下角 ★★★ -->
+    <div class="nav-stack">
       <div class="nav-btn" id="upBtn" title="上翻">▲</div>
       <div class="nav-btn" id="downBtn" title="下翻">▼</div>
     </div>
+
   </div>
 
   <footer class="composer">
@@ -766,7 +769,7 @@ window.addEventListener('beforeunload', ()=>{ try{ stopHeartbeat(); }catch(e){} 
 window.addEventListener('load', connectToMQTT);
 autoGrow();
 
-/* ============ ★★★ 悬浮上下箭头 逻辑 ★★★ ============ */
+/* ============ ★★★ 悬浮按钮逻辑 ★★★ ============ */
 (function(){
   const upBtn   = document.getElementById('upBtn');
   const downBtn = document.getElementById('downBtn');
@@ -779,7 +782,8 @@ autoGrow();
   function startScroll(dir){
     stopScroll();
     scrollTimer = setInterval(function(){
-      messagesEl.scrollTop += dir * 25;
+      const before = messagesEl.scrollTop;
+      messagesEl.scrollTop = before + dir * 25;
       if(dir < 0 && messagesEl.scrollTop <= 0) stopScroll();
       if(dir > 0 && messagesEl.scrollTop + messagesEl.clientHeight >= messagesEl.scrollHeight - 1) stopScroll();
     }, 25);
@@ -800,8 +804,6 @@ autoGrow();
       }, 320);
     }
     function up(e){
-      e.preventDefault();
-      e.stopPropagation();
       clearTimeout(longPressTimer);
       if(isLongPress){
         isLongPress = false;
@@ -818,8 +820,8 @@ autoGrow();
     btn.addEventListener('mouseleave', up);
   }
 
-  bind(upBtn,   -1);   // ▲ 向上翻历史
-  bind(downBtn,  1);   // ▼ 向下翻最新
+  bind(upBtn,   -1);
+  bind(downBtn,  1);
 })();
 </script>
 </body>
