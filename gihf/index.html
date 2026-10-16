@@ -9,14 +9,22 @@
   :root{
     --bg:#eef1f5; --panel:#fff; --primary:#0b93f6;
     --text:#17181a; --muted:#8b9098; --border:#e3e6ea;
+    /* ★ 整体缩放：改这一个值就能调整界面大小 */
+    --ui-scale: 0.65;
   }
+
+  /* ★ 整页缩放 */
+  html { zoom: var(--ui-scale); }
+
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0;height:100%}
   body{
     font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
     background:var(--bg);color:var(--text);
     display:flex;flex-direction:column;
-    height:100vh;height:100dvh;overflow:hidden;
+    /* 因为 html 已 zoom，高度要乘回来，否则底部会空一截 */
+    height: calc(100vh / var(--ui-scale));
+    overflow:hidden;
   }
   .join-panel{
     flex:0 0 auto;display:flex;flex-direction:column;gap:8px;
@@ -139,9 +147,7 @@
   <footer class="composer">
     <div class="thumbs" id="thumbs"></div>
     <div class="input-row">
-      <!-- 图片按钮：浏览器端用，RLGG 端会被 JS 隐藏，改用 Lua 原生按钮 -->
       <div class="icon-btn" id="pickBtn" title="发送图片">🖼️</div>
-      <!-- 浏览器端专用：隐藏的 file input -->
       <input type="file" id="fileInput" accept="image/*" multiple hidden>
       <textarea id="input" rows="1" placeholder="输入消息，Enter 发送…"></textarea>
       <button class="send-btn" id="sendBtn">发送</button>
@@ -151,11 +157,6 @@
   <div id="toast"></div>
 
 <script>
-/* =========================================================
- *  环境检测：URL 带 ?rlgg=1 判定为 RLGG WebView
- * ========================================================= */
-const isRLGG = /[?&]rlgg=1(&|$)/.test(location.search);
-
 /* =========================================================
  *  MQTT 配置
  * ========================================================= */
@@ -177,47 +178,6 @@ const roomIdIn    = document.getElementById('roomId');
 const pickBtn     = document.getElementById('pickBtn');
 
 let pending = [];
-
-/* =========================================================
- *  ★ 图片选择 —— 两套调用完全分离 ★
- * ========================================================= */
-
-/* ---------- ① 浏览器端调用（走 <input type="file">） ---------- */
-function browserPickImage() {
-  fileInput.click();
-}
-
-/* ---------- ② RLGG 端调用（走 Lua 原生按钮，JS 不处理） ---------- */
-function rlggPickImage() {
-  showToast('请在模型面板下方使用原生 📷 按钮选择图片');
-}
-
-/* ---------- ③ 统一入口：根据环境自动分发 ---------- */
-function pickImages() {
-  if (isRLGG) {
-    rlggPickImage();
-  } else {
-    browserPickImage();
-  }
-}
-
-/* ---------- ④ RLGG 端：接收 Lua 回传的图片（Base64） ---------- */
-window.receiveImageFromNative = function(base64Data, fileName) {
-  if (!base64Data) return;
-  var mime = (base64Data.match(/^data:(.*?);/) || [,'image/png'])[1];
-  var obj = {
-    src: base64Data,
-    name: fileName || ('image_' + Date.now() + guessExt(mime))
-  };
-  pending.push(obj);
-  renderThumbs();
-  showToast('已添加 1 张图片');
-};
-
-/* ---------- ⑤ RLGG 端：接收 Lua 的错误回调 ---------- */
-window.receiveErrorFromNative = function(msg) {
-  showToast('⚠️ ' + msg);
-};
 
 /* =========================================================
  *  工具函数
@@ -367,14 +327,6 @@ function renderThumbs() {
   });
 }
 
-/* ---------- RLGG 原生选图：清空待发列表 ---------- */
-window.clearPending = function () {
-  pending = [];
-  renderThumbs();
-  showToast('已清空待发图片');
-};
-
-/* 浏览器端专用：file input 的回调 */
 function handleFiles(files) {
   Array.from(files).forEach(f => {
     if (!f || !f.type || !f.type.startsWith('image/')) return;
@@ -526,17 +478,16 @@ inputEl.addEventListener('keydown', (e) => {
 
 sendBtn.addEventListener('click', send);
 
-/* 浏览器端：file input 的 change 事件 */
 fileInput.addEventListener('change', (e) => {
   handleFiles(e.target.files);
   fileInput.value = '';
 });
 
-/* 图片按钮点击（浏览器端有效；RLGG 端按钮会隐藏，走 Lua 原生按钮） */
+/* 图片按钮：直接触发文件选择 */
 pickBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   e.preventDefault();
-  pickImages();
+  fileInput.click();
 });
 
 /* 昵称/房间号变化时自动重连 */
@@ -545,9 +496,8 @@ roomIdIn.addEventListener('change', connectToMQTT);
 nicknameIn.addEventListener('keydown', (e) => { if(e.key === 'Enter') connectToMQTT(); });
 roomIdIn.addEventListener('keydown', (e) => { if(e.key === 'Enter') connectToMQTT(); });
 
-/* 粘贴图片：仅浏览器端 */
+/* 粘贴图片 */
 document.addEventListener('paste', (e) => {
-  if (isRLGG) return;
   const items = e.clipboardData && e.clipboardData.items;
   if (!items) return;
   const files = [];
@@ -560,29 +510,18 @@ document.addEventListener('paste', (e) => {
   if (files.length) { e.preventDefault(); handleFiles(files); showToast('已添加 ' + files.length + ' 张图片'); }
 });
 
-/* 拖拽上传：仅浏览器端 */
+/* 拖拽上传 */
 ['dragenter','dragover'].forEach(ev => document.addEventListener(ev, e => e.preventDefault()));
 document.addEventListener('drop', (e) => {
-  if (isRLGG) return;
   e.preventDefault();
   if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
     handleFiles(e.dataTransfer.files);
   }
 });
 
-/* =========================================================
- *  页面加载后自动加入房间
- * ========================================================= */
+/* 页面加载后自动加入 */
 window.addEventListener('load', () => {
   connectToMQTT();
-
-  if (isRLGG) {
-    // ★ RLGG 环境下隐藏 HTML 的 🖼️ 按钮，图片选择改由 Lua 侧按钮触发
-    if (pickBtn) pickBtn.style.display = 'none';
-    console.log('[ChatRoom] 运行环境：RLGG WebView —— 使用 Lua 原生按钮选图');
-  } else {
-    console.log('[ChatRoom] 运行环境：浏览器 —— 使用 <input type="file">');
-  }
 });
 
 autoGrow();
