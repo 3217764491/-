@@ -9,7 +9,7 @@
 <!-- ★★★ 本地存储桥接：必须在所有脚本最前面 ★★★ -->
 <script>
 (function(){
-  // 浏览器预览：LuaStorage 不存在 → 用原生 localStorage
+  // 浏览器里 LuaStorage 不存在 → 用原生 localStorage
   if (typeof LuaStorage === 'undefined') { window.__LS_MODE = 'browser'; return; }
 
   window.__LS_MODE = 'lua';
@@ -140,6 +140,29 @@
     opacity:0;pointer-events:none;transition:.25s ease;
   }
   #toast.show{opacity:1;transform:translate(-50%,0)}
+
+  /* ★ 自定义确认弹层 */
+  .confirm-mask{
+    position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;
+    display:flex;align-items:center;justify-content:center;padding:20px;
+    animation:maskIn .15s ease;
+  }
+  @keyframes maskIn{from{opacity:0}to{opacity:1}}
+  .confirm-box{
+    background:#fff;border-radius:12px;padding:18px;max-width:280px;width:100%;
+    box-shadow:0 8px 24px rgba(0,0,0,.2);text-align:center;
+    font-size:14px;color:#17181a;line-height:1.5;
+    animation:boxIn .18s ease;
+  }
+  @keyframes boxIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}
+  .confirm-box .confirm-text{margin-bottom:14px;word-break:break-word}
+  .confirm-box .confirm-actions{display:flex;gap:8px}
+  .confirm-box button{
+    flex:1;height:36px;border:0;border-radius:8px;
+    font-size:14px;cursor:pointer;font-family:inherit;
+  }
+  .confirm-box .btn-yes{background:var(--primary);color:#fff}
+  .confirm-box .btn-no{background:#eef1f5;color:#17181a}
 </style>
 </head>
 <body>
@@ -213,6 +236,30 @@ function dataURLtoBlob(dataUrl){
 }
 function guessExt(t){ const m={'image/jpeg':'.jpg','image/jpg':'.jpg','image/png':'.png','image/gif':'.gif','image/webp':'.webp'}; return m[t]||'.png'; }
 function makeId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+
+/* ★ 自定义确认弹层（WebView 里原生 confirm 会被静默吞掉） */
+function showConfirm(text, onYes, onNo){
+  const mask = document.createElement('div');
+  mask.className = 'confirm-mask';
+
+  const box = document.createElement('div');
+  box.className = 'confirm-box';
+  box.innerHTML =
+    '<div class="confirm-text">' + text + '</div>' +
+    '<div class="confirm-actions">' +
+      '<button class="btn-no">取消</button>' +
+      '<button class="btn-yes">确定</button>' +
+    '</div>';
+
+  mask.appendChild(box);
+  document.body.appendChild(mask);
+
+  function close(){ if (mask.parentNode) mask.parentNode.removeChild(mask); }
+
+  box.querySelector('.btn-yes').addEventListener('click', ()=>{ close(); onYes && onYes(); });
+  box.querySelector('.btn-no').addEventListener('click', ()=>{ close(); onNo && onNo(); });
+  mask.addEventListener('click', e=>{ if (e.target === mask) { close(); onNo && onNo(); } });
+}
 
 /* ============ 本地持久化 ============ */
 const seenIds = new Set();
@@ -541,7 +588,11 @@ inputEl.addEventListener('keydown', e=>{
 sendBtn.addEventListener('click', send);
 fileInput.addEventListener('change', e=>{ handleFiles(e.target.files); fileInput.value=''; });
 pickBtn.addEventListener('click', e=>{ e.stopPropagation(); e.preventDefault(); fileInput.click(); });
-clearBtn.addEventListener('click', ()=>{ if(confirm('确定清空本机记录？')) clearHistory(); });
+
+/* ★ 清空按钮：使用自定义确认弹层 */
+clearBtn.addEventListener('click', ()=>{
+  showConfirm('确定清空本机聊天记录？', clearHistory);
+});
 
 nicknameIn.addEventListener('change', connectToMQTT);
 roomIdIn.addEventListener('change', connectToMQTT);
