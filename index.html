@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -8,7 +9,6 @@
 <!-- ★★★ 本地存储桥接：必须在所有脚本最前面 ★★★ -->
 <script>
 (function(){
-  // 浏览器里 LuaStorage 不存在 → 用原生 localStorage
   if (typeof LuaStorage === 'undefined') { window.__LS_MODE = 'browser'; return; }
 
   window.__LS_MODE = 'lua';
@@ -61,6 +61,14 @@
   .join-row input:focus{border-color:var(--primary)}
   .status{font-size:11px;color:var(--muted)}
   .status.online{color:#22c55e}
+  /* ★ 在线人数徽章 */
+  .presence{
+    margin-left:auto;font-size:11px;font-weight:500;
+    color:var(--primary);background:#e8f3ff;
+    padding:3px 8px;border-radius:10px;white-space:nowrap;
+    transition:background .2s;
+  }
+  .presence.offline{color:var(--muted);background:#f0f2f5}
   .clear-btn{
     flex:0 0 auto;padding:5px 10px;border:1px solid var(--border);border-radius:6px;
     background:#f7f8fa;color:var(--muted);font:inherit;font-size:11px;cursor:pointer;
@@ -140,7 +148,6 @@
   }
   #toast.show{opacity:1;transform:translate(-50%,0)}
 
-  /* ★ 自定义确认弹层 */
   .confirm-mask{
     position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;
     display:flex;align-items:center;justify-content:center;padding:20px;
@@ -174,6 +181,7 @@
     </div>
     <div class="join-row">
       <span class="status" id="statusText">连接中...</span>
+      <span class="presence" id="presenceText">👥 本房间 0 · 全部 0</span>
       <button class="clear-btn" id="clearBtn" type="button">🗑 清空本机</button>
     </div>
   </div>
@@ -200,6 +208,14 @@ const SYNC_HISTORY = true;
 const MAX_IMG_SIDE = 1024;
 const JPEG_QUALITY = 0.75;
 
+/* ★ 在线人数相关配置 */
+const PRESENCE_TOPIC = 'chat/global/presence';   // 全局在线状态主题
+const HEARTBEAT_MS   = 15000;                    // 心跳间隔
+const PEER_TIMEOUT   = 45000;                    // 超时判定离线
+const PRUNE_MS       = 10000;                    // 清理扫描间隔
+const MY_CLIENT_ID   = 'web_' + Math.random().toString(16).slice(2,10)
+                             + Date.now().toString(36).slice(-4);
+
 let client = null;
 let myNickname = '';
 let myRoomId = '';
@@ -217,6 +233,7 @@ const nicknameIn  = document.getElementById('nickname');
 const roomIdIn    = document.getElementById('roomId');
 const pickBtn     = document.getElementById('pickBtn');
 const clearBtn    = document.getElementById('clearBtn');
+const presenceText= document.getElementById('presenceText');
 
 /* ============ 工具 ============ */
 function scrollToBottom(){ requestAnimationFrame(()=>{ messagesEl.scrollTop = messagesEl.scrollHeight; }); }
@@ -236,7 +253,6 @@ function dataURLtoBlob(dataUrl){
 function guessExt(t){ const m={'image/jpeg':'.jpg','image/jpg':'.jpg','image/png':'.png','image/gif':'.gif','image/webp':'.webp'}; return m[t]||'.png'; }
 function makeId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 
-/* ★ 自定义确认弹层（WebView 里原生 confirm 会被静默吞掉） */
 function showConfirm(text, onYes, onNo){
   const mask = document.createElement('div');
   mask.className = 'confirm-mask';
@@ -447,6 +463,89 @@ async function handleFiles(files){
   if(pending.length) showToast('已添加 '+pending.length+' 张图片');
 }
 
+/* ============ ★ 在线人数（Presence） ============ */
+const peers = new Map();          // clientId -> { nickname, room, ts }
+let hbTimer = null, pruneTimer = null, lastHelloReply = 0;
+
+/** 广播自己的在线状态 */
+function publishPresence(type){
+  if(!client || !isConnected) return;
+  try{
+    client.publish(PRESENCE_TOPIC, JSON.stringify({
+      type: type || 'presence',
+      clientId: MY_CLIENT_ID,
+      nickname: myNickname,
+      room: myRoomId,
+      timestamp: Date.now()
+    }), {qos:0});
+  }catch(e){}
+}
+
+/** 开始心跳 + 超时清理 */
+function startHeartbeat(){
+  stopHeartbeat();
+  // 先自报一次，并喊一声 hello，让房间里的老成员立刻回我一条状态
+  publishPresence('presence');
+  try{
+    client.publish(PRESENCE_TOPIC, JSON.stringify({
+      type:'hello', clientId:MY_CLIENT_ID,
+      nickname:myNickname, room:myRoomId, timestamp:Date.now()
+    }), {qos:0});
+  }catch(e){}
+  hbTimer    = setInterval(()=>publishPresence('presence'), HEARTBEAT_MS);
+  pruneTimer = setInterval(prunePeers, PRUNE_MS);
+}
+function stopHeartbeat(){
+  if(hbTimer){ clearInterval(hbTimer); hbTimer = null; }
+  if(pruneTimer){ clearInterval(pruneTimer); pruneTimer = null; }
+}
+
+/** 清理超时未心跳的成员 */
+function prunePeers(){
+  const now = Date.now(); let changed = false;
+  peers.forEach((v,k)=>{
+    if(now - (v.ts||0) > PEER_TIMEOUT){ peers.delete(k); changed = true; }
+  });
+  if(changed) updatePresenceUI();
+}
+
+/** 处理别人的在线状态 */
+function handlePresence(data){
+  if(!data || !data.clientId || data.clientId === MY_CLIENT_ID) return;
+
+  if(data.type === 'offline'){
+    if(peers.delete(data.clientId)) updatePresenceUI();
+    return;
+  }
+
+  peers.set(data.clientId, {
+    nickname: data.nickname || '匿名',
+    room: data.room || '',
+    ts: Date.now()
+  });
+  updatePresenceUI();
+
+  // 有人刚进来 → 回复自己的状态，让对方马上看到我
+  if(data.type === 'hello' && Date.now() - lastHelloReply > 1500){
+    lastHelloReply = Date.now();
+    publishPresence('presence');
+  }
+}
+
+/** 刷新界面上的在线人数 */
+function updatePresenceUI(){
+  let roomCount = 0, total = 0;
+  peers.forEach((v,k)=>{
+    if(k === MY_CLIENT_ID) return;
+    total++;
+    if(v.room === myRoomId) roomCount++;
+  });
+  if(isConnected){ total++; roomCount++; }   // 自己也算一个
+
+  presenceText.textContent = '👥 本房间 ' + roomCount + ' · 全部 ' + total;
+  presenceText.classList.toggle('offline', !isConnected);
+}
+
 /* ============ MQTT ============ */
 function connectToMQTT(){
   if(client){ try{ client.end(true); }catch(e){} client=null; }
@@ -456,6 +555,9 @@ function connectToMQTT(){
   hasJoined  = false;
   isConnected = false;
 
+  peers.clear();
+  updatePresenceUI();
+
   loadHistory();
   renderHistory();
 
@@ -463,11 +565,18 @@ function connectToMQTT(){
   statusText.className='status';
 
   client = mqtt.connect(MQTT_BROKER, {
-    clientId: 'web_'+Math.random().toString(16).substr(2,8),
+    clientId: MY_CLIENT_ID,
     clean: true,
     connectTimeout: 10000,
     reconnectPeriod: 3000,
     keepalive: 60,
+    // ★ 异常掉线时，broker 会代发这条遗嘱，别人立刻知道我不在线了
+    will: {
+      topic: PRESENCE_TOPIC,
+      payload: JSON.stringify({ type:'offline', clientId: MY_CLIENT_ID, timestamp: Date.now() }),
+      qos: 0,
+      retain: false
+    }
   });
 
   const topic     = 'chat/'+myRoomId;
@@ -478,7 +587,7 @@ function connectToMQTT(){
     statusText.textContent='✅ 已连接，订阅中...';
     statusText.className='status online';
 
-    const subList = SYNC_HISTORY ? [topic, topicHist] : [topic];
+    const subList = SYNC_HISTORY ? [topic, topicHist, PRESENCE_TOPIC] : [topic, PRESENCE_TOPIC];
     client.subscribe(subList, err=>{
       if(!err){
         statusText.textContent='✅ 已进入：'+myRoomId;
@@ -486,9 +595,11 @@ function connectToMQTT(){
           hasJoined = true;
           client.publish(topic, JSON.stringify({
             type:'join', sender:myNickname,
-            senderId: client.options.clientId, timestamp: Date.now()
+            senderId: MY_CLIENT_ID, timestamp: Date.now()
           }), {qos:0});
         }
+        startHeartbeat();       // ★ 开始报在线
+        updatePresenceUI();     // ★ 自己先算进去
         if(SYNC_HISTORY) publishHistory();
       }else{
         statusText.textContent='❌ 订阅失败：'+err.message;
@@ -500,6 +611,9 @@ function connectToMQTT(){
     let data;
     try{ data = JSON.parse(payload.toString()); }
     catch(e){ return; }
+
+    // ★ 在线状态消息
+    if(recvTopic === PRESENCE_TOPIC){ handlePresence(data); return; }
 
     if(SYNC_HISTORY && recvTopic === topicHist){
       if(!Array.isArray(data)) return;
@@ -513,7 +627,7 @@ function connectToMQTT(){
       return;
     }
 
-    if(data.senderId && data.senderId === client.options.clientId) return;
+    if(data.senderId && data.senderId === MY_CLIENT_ID) return;
 
     if(data.type === 'join'){
       addSystemMessage('👤 '+data.sender+' 加入了房间');
@@ -528,7 +642,13 @@ function connectToMQTT(){
   });
 
   client.on('error', err=>{ statusText.textContent='❌ 错误：'+err.message; });
-  client.on('close', ()=>{ if(isConnected) statusText.textContent='⚠️ 断开，重连中...'; });
+  client.on('close', ()=>{
+    if(isConnected){
+      isConnected = false;
+      statusText.textContent='⚠️ 断开，重连中...';
+      updatePresenceUI();       // ★ 掉线时自己从计数里去掉
+    }
+  });
   client.on('reconnect', ()=>{ statusText.textContent='正在重新连接...'; });
 }
 
@@ -566,7 +686,7 @@ function send(){
 
   const payload = JSON.stringify({
     type:'message', id:msg.id, sender:myNickname,
-    senderId: client.options.clientId,
+    senderId: MY_CLIENT_ID,
     text: text, images: imgs, timestamp: msg.timestamp
   });
   client.publish('chat/'+myRoomId, payload, {qos:0}, err=>{
@@ -588,7 +708,6 @@ sendBtn.addEventListener('click', send);
 fileInput.addEventListener('change', e=>{ handleFiles(e.target.files); fileInput.value=''; });
 pickBtn.addEventListener('click', e=>{ e.stopPropagation(); e.preventDefault(); fileInput.click(); });
 
-/* ★ 清空按钮：使用自定义确认弹层 */
 clearBtn.addEventListener('click', ()=>{
   showConfirm('确定清空本机聊天记录？', clearHistory);
 });
@@ -613,6 +732,8 @@ document.addEventListener('drop', e=>{
   e.preventDefault();
   if(e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
 });
+
+window.addEventListener('beforeunload', ()=>{ try{ stopHeartbeat(); }catch(e){} });
 
 window.addEventListener('load', connectToMQTT);
 autoGrow();
