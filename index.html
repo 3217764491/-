@@ -140,6 +140,16 @@
     background:var(--primary);color:#fff;font:inherit;font-size:14px;font-weight:500;
     cursor:pointer;
   }
+
+  /* ★★★ 上下滚动按钮 ★★★ */
+  .nav-btn{
+    flex:0 0 32px;width:32px;height:36px;border-radius:9px;
+    background:#f0f2f5;color:#555;font-size:13px;
+    cursor:pointer;display:grid;place-items:center;user-select:none;
+    transition:background .15s,color .15s;
+  }
+  .nav-btn:active{background:#cfe4ff;color:#0b93f6;transform:scale(.95)}
+
   #toast{
     position:fixed;left:50%;bottom:80px;transform:translate(-50%,10px);z-index:999;
     background:rgba(0,0,0,.8);color:#fff;font-size:12px;padding:7px 12px;
@@ -192,6 +202,8 @@
     <div class="thumbs" id="thumbs"></div>
     <div class="input-row">
       <div class="icon-btn" id="pickBtn">🖼️</div>
+      <div class="nav-btn" id="upBtn" title="上翻">▲</div>
+      <div class="nav-btn" id="downBtn" title="下翻">▼</div>
       <input type="file" id="fileInput" accept="image/*" multiple hidden>
       <textarea id="input" rows="1" placeholder="输入消息…"></textarea>
       <button class="send-btn" id="sendBtn">发送</button>
@@ -209,10 +221,10 @@ const MAX_IMG_SIDE = 1024;
 const JPEG_QUALITY = 0.75;
 
 /* ★ 在线人数相关配置 */
-const PRESENCE_TOPIC = 'chat/global/presence';   // 全局在线状态主题
-const HEARTBEAT_MS   = 15000;                    // 心跳间隔
-const PEER_TIMEOUT   = 45000;                    // 超时判定离线
-const PRUNE_MS       = 10000;                    // 清理扫描间隔
+const PRESENCE_TOPIC = 'chat/global/presence';
+const HEARTBEAT_MS   = 15000;
+const PEER_TIMEOUT   = 45000;
+const PRUNE_MS       = 10000;
 const MY_CLIENT_ID   = 'web_' + Math.random().toString(16).slice(2,10)
                              + Date.now().toString(36).slice(-4);
 
@@ -464,10 +476,9 @@ async function handleFiles(files){
 }
 
 /* ============ ★ 在线人数（Presence） ============ */
-const peers = new Map();          // clientId -> { nickname, room, ts }
+const peers = new Map();
 let hbTimer = null, pruneTimer = null, lastHelloReply = 0;
 
-/** 广播自己的在线状态 */
 function publishPresence(type){
   if(!client || !isConnected) return;
   try{
@@ -480,11 +491,8 @@ function publishPresence(type){
     }), {qos:0});
   }catch(e){}
 }
-
-/** 开始心跳 + 超时清理 */
 function startHeartbeat(){
   stopHeartbeat();
-  // 先自报一次，并喊一声 hello，让房间里的老成员立刻回我一条状态
   publishPresence('presence');
   try{
     client.publish(PRESENCE_TOPIC, JSON.stringify({
@@ -499,8 +507,6 @@ function stopHeartbeat(){
   if(hbTimer){ clearInterval(hbTimer); hbTimer = null; }
   if(pruneTimer){ clearInterval(pruneTimer); pruneTimer = null; }
 }
-
-/** 清理超时未心跳的成员 */
 function prunePeers(){
   const now = Date.now(); let changed = false;
   peers.forEach((v,k)=>{
@@ -508,8 +514,6 @@ function prunePeers(){
   });
   if(changed) updatePresenceUI();
 }
-
-/** 处理别人的在线状态 */
 function handlePresence(data){
   if(!data || !data.clientId || data.clientId === MY_CLIENT_ID) return;
 
@@ -525,14 +529,11 @@ function handlePresence(data){
   });
   updatePresenceUI();
 
-  // 有人刚进来 → 回复自己的状态，让对方马上看到我
   if(data.type === 'hello' && Date.now() - lastHelloReply > 1500){
     lastHelloReply = Date.now();
     publishPresence('presence');
   }
 }
-
-/** 刷新界面上的在线人数 */
 function updatePresenceUI(){
   let roomCount = 0, total = 0;
   peers.forEach((v,k)=>{
@@ -540,7 +541,7 @@ function updatePresenceUI(){
     total++;
     if(v.room === myRoomId) roomCount++;
   });
-  if(isConnected){ total++; roomCount++; }   // 自己也算一个
+  if(isConnected){ total++; roomCount++; }
 
   presenceText.textContent = '👥 本房间 ' + roomCount + ' · 全部 ' + total;
   presenceText.classList.toggle('offline', !isConnected);
@@ -570,7 +571,6 @@ function connectToMQTT(){
     connectTimeout: 10000,
     reconnectPeriod: 3000,
     keepalive: 60,
-    // ★ 异常掉线时，broker 会代发这条遗嘱，别人立刻知道我不在线了
     will: {
       topic: PRESENCE_TOPIC,
       payload: JSON.stringify({ type:'offline', clientId: MY_CLIENT_ID, timestamp: Date.now() }),
@@ -598,8 +598,8 @@ function connectToMQTT(){
             senderId: MY_CLIENT_ID, timestamp: Date.now()
           }), {qos:0});
         }
-        startHeartbeat();       // ★ 开始报在线
-        updatePresenceUI();     // ★ 自己先算进去
+        startHeartbeat();
+        updatePresenceUI();
         if(SYNC_HISTORY) publishHistory();
       }else{
         statusText.textContent='❌ 订阅失败：'+err.message;
@@ -612,7 +612,6 @@ function connectToMQTT(){
     try{ data = JSON.parse(payload.toString()); }
     catch(e){ return; }
 
-    // ★ 在线状态消息
     if(recvTopic === PRESENCE_TOPIC){ handlePresence(data); return; }
 
     if(SYNC_HISTORY && recvTopic === topicHist){
@@ -646,7 +645,7 @@ function connectToMQTT(){
     if(isConnected){
       isConnected = false;
       statusText.textContent='⚠️ 断开，重连中...';
-      updatePresenceUI();       // ★ 掉线时自己从计数里去掉
+      updatePresenceUI();
     }
   });
   client.on('reconnect', ()=>{ statusText.textContent='正在重新连接...'; });
@@ -737,6 +736,62 @@ window.addEventListener('beforeunload', ()=>{ try{ stopHeartbeat(); }catch(e){} 
 
 window.addEventListener('load', connectToMQTT);
 autoGrow();
+
+/* ============ ★★★ 上下滚动按钮 ★★★ ============ */
+(function(){
+  const upBtn   = document.getElementById('upBtn');
+  const downBtn = document.getElementById('downBtn');
+  if(!upBtn || !downBtn || !messagesEl) return;
+
+  let scrollTimer = null;
+  let longPressTimer = null;
+  let isLongPress = false;
+
+  function startScroll(dir){
+    stopScroll();
+    scrollTimer = setInterval(function(){
+      const before = messagesEl.scrollTop;
+      messagesEl.scrollTop = before + dir * 25;
+      // 到顶/到底自动停
+      if(dir < 0 && messagesEl.scrollTop <= 0) stopScroll();
+      if(dir > 0 && messagesEl.scrollTop + messagesEl.clientHeight >= messagesEl.scrollHeight - 1) stopScroll();
+    }, 25);
+  }
+  function stopScroll(){
+    if(scrollTimer){ clearInterval(scrollTimer); scrollTimer = null; }
+  }
+
+  function bind(btn, dir){
+    function down(e){
+      e.preventDefault();
+      isLongPress = false;
+      clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(function(){
+        isLongPress = true;
+        startScroll(dir);
+      }, 320);          // 长按 320ms 进入连续滚动
+    }
+    function up(e){
+      clearTimeout(longPressTimer);
+      if(isLongPress){
+        isLongPress = false;
+        stopScroll();
+      }else{
+        // 短按：滚一屏
+        messagesEl.scrollTop += dir * messagesEl.clientHeight * 0.85;
+      }
+    }
+    btn.addEventListener('touchstart', down, {passive:false});
+    btn.addEventListener('touchend',   up);
+    btn.addEventListener('touchcancel',up);
+    btn.addEventListener('mousedown',  down);
+    btn.addEventListener('mouseup',    up);
+    btn.addEventListener('mouseleave', up);
+  }
+
+  bind(upBtn,   -1);   // ▲ 向上翻历史
+  bind(downBtn,  1);   // ▼ 向下翻最新
+})();
 </script>
 </body>
 </html>
