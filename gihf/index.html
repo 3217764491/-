@@ -5,50 +5,141 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>P2P 聊天室</title>
+
+<!-- ★★★ 本地存储桥接：必须在所有脚本最前面 ★★★ -->
+<script>
+(function(){
+  // 浏览器预览：LuaStorage 不存在 → 用原生 localStorage
+  if (typeof LuaStorage === 'undefined') { window.__LS_MODE = 'browser'; return; }
+
+  window.__LS_MODE = 'lua';
+  var mem = {};
+  var LS = {
+    getItem:    function(k){
+      try { var v = LuaStorage.getItem(String(k)); return (v === '' || v == null) ? null : v; }
+      catch(e){ return mem[k] || null; }
+    },
+    setItem:    function(k,v){
+      try { LuaStorage.setItem(String(k), String(v)); }
+      catch(e){ mem[k] = String(v); }
+    },
+    removeItem: function(k){
+      try { LuaStorage.removeItem(String(k)); }
+      catch(e){ delete mem[k]; }
+    },
+    clear:      function(){ mem = {}; },
+    key:        function(){ return null; },
+    length:     0
+  };
+  try { Object.defineProperty(window, 'localStorage', { value: LS, configurable: false }); }
+  catch(e){ window.localStorage = LS; }
+})();
+</script>
+
 <script src="https://unpkg.com/mqtt@4.1.0/dist/mqtt.min.js"></script>
 <style>
-:root{--bg:#eef1f5;--panel:#fff;--primary:#0b93f6;--text:#17181a;--muted:#8b9098;--border:#e3e6ea}
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;padding:0;height:100%}
-body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column;height:100vh;overflow:hidden}
-.join-panel{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--border)}
-.join-panel h1{margin:0;font-size:14px;font-weight:600}
-.join-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.join-row input{flex:1;min-width:80px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font:inherit;font-size:13px;outline:none}
-.join-row input:focus{border-color:var(--primary)}
-.status{font-size:11px;color:var(--muted)}
-.status.online{color:#22c55e}
-.clear-btn{flex:0 0 auto;padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:#f7f8fa;color:var(--muted);font:inherit;font-size:11px;cursor:pointer}
-.clear-btn:active{background:#ffe9e9;color:#d64545}
-.messages{flex:1 1 auto;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
-.msg{display:flex;gap:6px;align-items:flex-start;animation:fadeIn .22s ease}
-.msg.me{flex-direction:row-reverse}
-@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-.avatar{flex:0 0 30px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:14px;background:#dfe3e8;user-select:none}
-.msg.me .avatar{background:#cfe6ff}
-.bubble{max-width:78%;padding:8px 12px;border-radius:12px;background:var(--panel);line-height:1.5;font-size:14px;box-shadow:0 1px 2px rgba(0,0,0,.06);word-break:break-word;overflow-wrap:anywhere;border-top-left-radius:4px}
-.msg.me .bubble{background:var(--primary);color:#fff;border-top-left-radius:12px;border-top-right-radius:4px}
-.sender{font-size:10px;color:var(--muted);margin-bottom:3px;font-weight:500}
-.msg.me .sender{color:#d0e8ff;text-align:right}
-.bubble .text{white-space:pre-wrap}
-.msg-system{display:flex;justify-content:center;margin:4px 0}
-.msg-system span{background:#dcdfe3;color:#555;font-size:11px;padding:3px 10px;border-radius:10px}
-.imgs{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
-.img-wrap{position:relative;border-radius:8px;overflow:hidden;cursor:pointer;line-height:0;background:#f0f2f5;box-shadow:0 1px 3px rgba(0,0,0,.12)}
-.img-wrap img{width:110px;height:110px;object-fit:cover;display:block}
-.composer{flex:0 0 auto;background:var(--panel);border-top:1px solid var(--border);padding:8px 10px}
-.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
-.thumbs:empty{display:none}
-.thumb{position:relative;width:48px;height:48px;border-radius:8px;overflow:hidden;border:1px solid var(--border)}
-.thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.thumb button{position:absolute;top:2px;right:2px;width:16px;height:16px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:11px;line-height:1;cursor:pointer;display:grid;place-items:center}
-.input-row{display:flex;align-items:flex-end;gap:6px}
-.icon-btn{flex:0 0 36px;width:36px;height:36px;border-radius:10px;background:#f0f2f5;font-size:18px;cursor:pointer;display:grid;place-items:center;user-select:none}
-textarea{flex:1 1 auto;min-width:0;resize:none;border:1px solid var(--border);border-radius:10px;padding:8px 10px;font:inherit;font-size:14px;line-height:1.4;max-height:100px;outline:none;background:#fafbfc;color:inherit}
-textarea:focus{border-color:var(--primary);background:#fff}
-.send-btn{flex:0 0 auto;height:36px;padding:0 14px;border:0;border-radius:10px;background:var(--primary);color:#fff;font:inherit;font-size:14px;font-weight:500;cursor:pointer}
-#toast{position:fixed;left:50%;bottom:80px;transform:translate(-50%,10px);z-index:999;background:rgba(0,0,0,.8);color:#fff;font-size:12px;padding:7px 12px;border-radius:8px;max-width:80vw;text-align:center;opacity:0;pointer-events:none;transition:.25s ease}
-#toast.show{opacity:1;transform:translate(-50%,0)}
+  :root{
+    --bg:#eef1f5; --panel:#fff; --primary:#0b93f6;
+    --text:#17181a; --muted:#8b9098; --border:#e3e6ea;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);
+    display:flex;flex-direction:column;height:100vh;overflow:hidden;
+  }
+  .join-panel{
+    flex:0 0 auto;display:flex;flex-direction:column;gap:6px;
+    padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--border);
+  }
+  .join-panel h1{margin:0;font-size:14px;font-weight:600}
+  .join-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .join-row input{
+    flex:1;min-width:80px;padding:6px 8px;border:1px solid var(--border);
+    border-radius:6px;font:inherit;font-size:13px;outline:none;
+  }
+  .join-row input:focus{border-color:var(--primary)}
+  .status{font-size:11px;color:var(--muted)}
+  .status.online{color:#22c55e}
+  .clear-btn{
+    flex:0 0 auto;padding:5px 10px;border:1px solid var(--border);border-radius:6px;
+    background:#f7f8fa;color:var(--muted);font:inherit;font-size:11px;cursor:pointer;
+  }
+  .clear-btn:active{background:#ffe9e9;color:#d64545}
+
+  .messages{
+    flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    padding:12px;display:flex;flex-direction:column;gap:12px;
+  }
+  .msg{display:flex;gap:6px;align-items:flex-start;animation:fadeIn .22s ease}
+  .msg.me{flex-direction:row-reverse}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .avatar{
+    flex:0 0 30px;width:30px;height:30px;border-radius:50%;
+    display:grid;place-items:center;font-size:14px;background:#dfe3e8;user-select:none;
+  }
+  .msg.me .avatar{background:#cfe6ff}
+  .bubble{
+    max-width:78%;padding:8px 12px;border-radius:12px;
+    background:var(--panel);line-height:1.5;font-size:14px;
+    box-shadow:0 1px 2px rgba(0,0,0,.06);word-break:break-word;overflow-wrap:anywhere;
+    border-top-left-radius:4px;
+  }
+  .msg.me .bubble{background:var(--primary);color:#fff;border-top-left-radius:12px;border-top-right-radius:4px}
+  .sender{font-size:10px;color:var(--muted);margin-bottom:3px;font-weight:500}
+  .msg.me .sender{color:#d0e8ff;text-align:right}
+  .bubble .text{white-space:pre-wrap}
+
+  .msg-system{display:flex;justify-content:center;margin:4px 0}
+  .msg-system span{
+    background:#dcdfe3;color:#555;font-size:11px;
+    padding:3px 10px;border-radius:10px;
+  }
+
+  .imgs{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+  .img-wrap{
+    position:relative;border-radius:8px;overflow:hidden;cursor:pointer;
+    line-height:0;background:#f0f2f5;box-shadow:0 1px 3px rgba(0,0,0,.12);
+  }
+  .img-wrap img{width:110px;height:110px;object-fit:cover;display:block}
+
+  .composer{
+    flex:0 0 auto;background:var(--panel);border-top:1px solid var(--border);
+    padding:8px 10px;
+  }
+  .thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+  .thumbs:empty{display:none}
+  .thumb{position:relative;width:48px;height:48px;border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+  .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .thumb button{
+    position:absolute;top:2px;right:2px;width:16px;height:16px;padding:0;
+    border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;
+    font-size:11px;line-height:1;cursor:pointer;display:grid;place-items:center;
+  }
+  .input-row{display:flex;align-items:flex-end;gap:6px}
+  .icon-btn{
+    flex:0 0 36px;width:36px;height:36px;border-radius:10px;
+    background:#f0f2f5;font-size:18px;cursor:pointer;display:grid;place-items:center;user-select:none;
+  }
+  textarea{
+    flex:1 1 auto;min-width:0;resize:none;border:1px solid var(--border);
+    border-radius:10px;padding:8px 10px;font:inherit;font-size:14px;
+    line-height:1.4;max-height:100px;outline:none;background:#fafbfc;color:inherit;
+  }
+  textarea:focus{border-color:var(--primary);background:#fff}
+  .send-btn{
+    flex:0 0 auto;height:36px;padding:0 14px;border:0;border-radius:10px;
+    background:var(--primary);color:#fff;font:inherit;font-size:14px;font-weight:500;
+    cursor:pointer;
+  }
+  #toast{
+    position:fixed;left:50%;bottom:80px;transform:translate(-50%,10px);z-index:999;
+    background:rgba(0,0,0,.8);color:#fff;font-size:12px;padding:7px 12px;
+    border-radius:8px;max-width:80vw;text-align:center;
+    opacity:0;pointer-events:none;transition:.25s ease;
+  }
+  #toast.show{opacity:1;transform:translate(-50%,0)}
 </style>
 </head>
 <body>
@@ -80,125 +171,144 @@ textarea:focus{border-color:var(--primary);background:#fff}
   <div id="toast"></div>
 
 <script>
-/* ============ 存储层：优先 Lua，回退 localStorage ============ */
-var LS = (function(){
-  if (typeof LuaStorage !== 'undefined' && LuaStorage) {
-    return {
-      getItem:    function(k){ try{ var v = LuaStorage.getItem(String(k)); return (v===''||v===null||v===undefined) ? null : v; }catch(e){ return null; } },
-      setItem:    function(k,v){ try{ LuaStorage.setItem(String(k), String(v)); }catch(e){} },
-      removeItem: function(k){ try{ LuaStorage.removeItem(String(k)); }catch(e){} }
-    };
-  }
-  return {
-    getItem:    function(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
-    setItem:    function(k,v){ try{ localStorage.setItem(k,v); }catch(e){} },
-    removeItem: function(k){ try{ localStorage.removeItem(k); }catch(e){} }
-  };
-})();
-
 /* ============ 配置 ============ */
-var MQTT_BROKER = 'wss://broker.emqx.io:8084/mqtt';
-var MAX_HISTORY = 300;
-var SYNC_HISTORY = true;
-var MAX_IMG_SIDE = 1024;
-var JPEG_QUALITY = 0.75;
+const MQTT_BROKER = 'wss://broker.emqx.io:8084/mqtt';
+const MAX_HISTORY = 300;
+const SYNC_HISTORY = true;
+const MAX_IMG_SIDE = 1024;
+const JPEG_QUALITY = 0.75;
 
-var client = null, myNickname = '', myRoomId = '';
-var isConnected = false, hasJoined = false, pending = [];
+let client = null;
+let myNickname = '';
+let myRoomId = '';
+let isConnected = false;
+let hasJoined = false;
+let pending = [];
 
-var messagesEl  = document.getElementById('messages');
-var inputEl     = document.getElementById('input');
-var sendBtn     = document.getElementById('sendBtn');
-var fileInput   = document.getElementById('fileInput');
-var thumbsEl    = document.getElementById('thumbs');
-var statusText  = document.getElementById('statusText');
-var nicknameIn  = document.getElementById('nickname');
-var roomIdIn    = document.getElementById('roomId');
-var pickBtn     = document.getElementById('pickBtn');
-var clearBtn    = document.getElementById('clearBtn');
+const messagesEl  = document.getElementById('messages');
+const inputEl     = document.getElementById('input');
+const sendBtn     = document.getElementById('sendBtn');
+const fileInput   = document.getElementById('fileInput');
+const thumbsEl    = document.getElementById('thumbs');
+const statusText  = document.getElementById('statusText');
+const nicknameIn  = document.getElementById('nickname');
+const roomIdIn    = document.getElementById('roomId');
+const pickBtn     = document.getElementById('pickBtn');
+const clearBtn    = document.getElementById('clearBtn');
 
 /* ============ 工具 ============ */
-function scrollToBottom(){ requestAnimationFrame(function(){ messagesEl.scrollTop = messagesEl.scrollHeight; }); }
-var toastTimer;
+function scrollToBottom(){ requestAnimationFrame(()=>{ messagesEl.scrollTop = messagesEl.scrollHeight; }); }
+let toastTimer;
 function showToast(msg){
-  var el = document.getElementById('toast');
+  const el = document.getElementById('toast');
   el.textContent = msg; el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 2000);
+  toastTimer = setTimeout(()=>el.classList.remove('show'), 2000);
 }
-function guessExt(t){ var m={'image/jpeg':'.jpg','image/jpg':'.jpg','image/png':'.png','image/gif':'.gif','image/webp':'.webp'}; return m[t]||'.png'; }
+function dataURLtoBlob(dataUrl){
+  const parts = dataUrl.split(','); const mime = (parts[0].match(/:(.*?);/)||[,'image/png'])[1];
+  const bin = atob(parts[1]); const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+  return new Blob([arr],{type:mime});
+}
+function guessExt(t){ const m={'image/jpeg':'.jpg','image/jpg':'.jpg','image/png':'.png','image/gif':'.gif','image/webp':'.webp'}; return m[t]||'.png'; }
 function makeId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 
-/* ============ 历史持久化 ============ */
-var seenIds = {}, history = [], saveTimer = null;
+/* ============ 本地持久化 ============ */
+const seenIds = new Set();
+let history = [];
+let saveTimer = null;
 function historyKey(){ return 'chat_history_'+myRoomId; }
 function loadHistory(){
-  history = []; seenIds = {};
+  history = []; seenIds.clear();
   try{
-    var raw = LS.getItem(historyKey());
-    var arr = raw ? JSON.parse(raw) : [];
-    if(Array.isArray(arr)) arr.forEach(function(m){
-      if(!m||!m.id||seenIds[m.id]) return;
-      seenIds[m.id] = 1; history.push(m);
+    const raw = localStorage.getItem(historyKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    if(Array.isArray(arr)) arr.forEach(m=>{
+      if(!m||!m.id||seenIds.has(m.id)) return;
+      seenIds.add(m.id); history.push(m);
     });
-  }catch(e){ history = []; }
+  }catch(e){ history=[]; }
 }
 function saveHistory(){
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(function(){
-    var arr = history.slice(-MAX_HISTORY);
+  saveTimer = setTimeout(()=>{
+    let arr = history.slice(-MAX_HISTORY);
     while(arr.length){
-      try{ LS.setItem(historyKey(), JSON.stringify(arr)); return; }
+      try{ localStorage.setItem(historyKey(), JSON.stringify(arr)); return; }
       catch(e){ arr = arr.slice(Math.ceil(arr.length/4)); }
     }
-    try{ LS.removeItem(historyKey()); }catch(e){}
+    try{ localStorage.removeItem(historyKey()); }catch(e){}
   }, 300);
 }
 function clearHistory(){
-  history = []; seenIds = {};
-  try{ LS.removeItem(historyKey()); }catch(e){}
-  messagesEl.innerHTML = '';
+  history=[]; seenIds.clear();
+  try{ localStorage.removeItem(historyKey()); }catch(e){}
+  messagesEl.innerHTML='';
   addSystemMessage('🗑 本机聊天记录已清空');
+}
+
+/* ============ 图片下载 ============ */
+async function downloadImage(src, name){
+  showToast('正在下载…');
+  try{
+    let blob;
+    if(src.startsWith('data:')) blob = dataURLtoBlob(src);
+    else{
+      const res = await fetch(src,{mode:'cors'});
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      blob = await res.blob();
+    }
+    const filename = name && name.trim() ? name.trim() : ('image_'+Date.now()+guessExt(blob.type));
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href=url; a.download=filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 30000);
+    showToast('✅ 已开始下载');
+  }catch(err){
+    try{ window.open(src,'_blank'); }catch(e){}
+    showToast('⚠️ 已在新窗口打开');
+  }
 }
 
 /* ============ 渲染 ============ */
 function renderMessage(m){
-  var wrap = document.createElement('div');
+  const wrap = document.createElement('div');
   wrap.className = 'msg ' + (m.isMe?'me':'');
   if(m.id) wrap.dataset.id = m.id;
 
-  var avatar = document.createElement('div');
-  avatar.className = 'avatar';
+  const avatar = document.createElement('div');
+  avatar.className='avatar';
   avatar.textContent = m.sender ? m.sender.charAt(0).toUpperCase() : '?';
 
-  var bubble = document.createElement('div');
-  bubble.className = 'bubble';
+  const bubble = document.createElement('div');
+  bubble.className='bubble';
 
   if(m.sender){
-    var s = document.createElement('div');
-    s.className = 'sender'; s.textContent = m.sender;
+    const s = document.createElement('div');
+    s.className='sender'; s.textContent = m.sender;
     bubble.appendChild(s);
   }
   if(m.text){
-    var t = document.createElement('div');
-    t.className = 'text'; t.textContent = m.text;
+    const t = document.createElement('div');
+    t.className='text'; t.textContent = m.text;
     bubble.appendChild(t);
   }
-  var images = m.images||[];
+  const images = m.images||[];
   if(images.length){
-    var box = document.createElement('div');
-    box.className = 'imgs';
-    images.forEach(function(img){
-      var src = typeof img==='string'?img:(img.src||img.url||'');
+    const box = document.createElement('div');
+    box.className='imgs';
+    images.forEach(img=>{
+      const src  = typeof img==='string'?img:(img.src||img.url||'');
+      const name = (typeof img==='object'&&img.name)?img.name:'';
       if(!src) return;
-      var holder = document.createElement('div');
-      holder.className = 'img-wrap';
-      var im = document.createElement('img');
-      im.src = src; im.alt = '图片'; im.loading = 'lazy';
+      const holder = document.createElement('div');
+      holder.className='img-wrap';
+      const im = document.createElement('img');
+      im.src = src; im.alt='图片'; im.loading='lazy';
       holder.appendChild(im);
-      holder.addEventListener('click', function(){
-        try{ window.open(src,'_blank'); }catch(e){}
-      });
+      holder.addEventListener('click', ()=>downloadImage(src,name));
       box.appendChild(holder);
     });
     bubble.appendChild(box);
@@ -208,10 +318,11 @@ function renderMessage(m){
   wrap.appendChild(bubble);
   messagesEl.appendChild(wrap);
 }
+
 function addMessage(msg){
   if(!msg) return false;
-  if(msg.id && seenIds[msg.id]) return false;
-  if(msg.id) seenIds[msg.id] = 1;
+  if(msg.id && seenIds.has(msg.id)) return false;
+  if(msg.id) seenIds.add(msg.id);
   history.push(msg);
   if(history.length > MAX_HISTORY*2) history = history.slice(-MAX_HISTORY);
   renderMessage(msg);
@@ -220,14 +331,14 @@ function addMessage(msg){
   return true;
 }
 function renderHistory(){
-  messagesEl.innerHTML = '';
+  messagesEl.innerHTML='';
   history.forEach(renderMessage);
   scrollToBottom();
 }
 function addSystemMessage(text){
-  var wrap = document.createElement('div');
-  wrap.className = 'msg-system';
-  var span = document.createElement('span');
+  const wrap = document.createElement('div');
+  wrap.className='msg-system';
+  const span = document.createElement('span');
   span.textContent = text;
   wrap.appendChild(span);
   messagesEl.appendChild(wrap);
@@ -236,13 +347,13 @@ function addSystemMessage(text){
 
 /* ============ 缩略图 ============ */
 function renderThumbs(){
-  thumbsEl.innerHTML = '';
-  pending.forEach(function(img, idx){
-    var d = document.createElement('div'); d.className = 'thumb';
-    var im = document.createElement('img'); im.src = img.src;
-    var btn = document.createElement('button');
-    btn.type = 'button'; btn.textContent = '×';
-    btn.addEventListener('click', function(e){ e.stopPropagation(); e.preventDefault(); pending.splice(idx,1); renderThumbs(); });
+  thumbsEl.innerHTML='';
+  pending.forEach((img, idx)=>{
+    const d = document.createElement('div'); d.className='thumb';
+    const im = document.createElement('img'); im.src = img.src;
+    const btn = document.createElement('button');
+    btn.type='button'; btn.textContent='×';
+    btn.addEventListener('click', e=>{ e.stopPropagation(); e.preventDefault(); pending.splice(idx,1); renderThumbs(); });
     d.appendChild(im); d.appendChild(btn);
     thumbsEl.appendChild(d);
   });
@@ -250,53 +361,49 @@ function renderThumbs(){
 
 /* ============ 图片压缩 ============ */
 function compressImage(file){
-  return new Promise(function(resolve){
-    if(file.type === 'image/gif'){
-      var rg = new FileReader();
-      rg.onload = function(){ resolve({src:rg.result, name:file.name}); };
-      rg.onerror = function(){ resolve(null); };
-      rg.readAsDataURL(file); return;
+  return new Promise(resolve=>{
+    if(file.type==='image/gif'){
+      const r=new FileReader();
+      r.onload=()=>resolve({src:r.result, name:file.name});
+      r.onerror=()=>resolve(null);
+      r.readAsDataURL(file); return;
     }
-    var r = new FileReader();
-    r.onload = function(){
-      var img = new Image();
-      img.onload = function(){
-        var w = img.naturalWidth, h = img.naturalHeight;
-        var scale = Math.min(1, MAX_IMG_SIDE/Math.max(w,h));
-        w = Math.max(1, Math.round(w*scale)); h = Math.max(1, Math.round(h*scale));
-        var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-        cv.getContext('2d').drawImage(img, 0, 0, w, h);
-        var out; try{ out = cv.toDataURL('image/jpeg', JPEG_QUALITY); }catch(e){ out = r.result; }
+    const r=new FileReader();
+    r.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        let w=img.naturalWidth, h=img.naturalHeight;
+        const scale = Math.min(1, MAX_IMG_SIDE/Math.max(w,h));
+        w=Math.max(1,Math.round(w*scale)); h=Math.max(1,Math.round(h*scale));
+        const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+        cv.getContext('2d').drawImage(img,0,0,w,h);
+        let out; try{ out=cv.toDataURL('image/jpeg',JPEG_QUALITY); }catch(e){ out=r.result; }
         resolve({src:out, name:file.name});
       };
-      img.onerror = function(){ resolve({src:r.result, name:file.name}); };
-      img.src = r.result;
+      img.onerror=()=>resolve({src:r.result, name:file.name});
+      img.src=r.result;
     };
-    r.onerror = function(){ resolve(null); };
+    r.onerror=()=>resolve(null);
     r.readAsDataURL(file);
   });
 }
-function handleFiles(files){
-  var list = Array.prototype.slice.call(files||[]);
+async function handleFiles(files){
+  const list = Array.from(files||[]);
   if(!list.length) return;
-  var chain = Promise.resolve();
-  list.forEach(function(f){
-    if(!f || !f.type || f.type.indexOf('image/') !== 0) return;
-    if(f.size > 10*1024*1024){ showToast('图片过大（>10MB）'); return; }
-    chain = chain.then(function(){
-      return compressImage(f).then(function(out){
-        if(!out) return;
-        pending.push({src:out.src, name:f.name||('image_'+Date.now()+guessExt(f.type))});
-        renderThumbs();
-      });
-    });
-  });
-  chain.then(function(){ if(pending.length) showToast('已添加 '+pending.length+' 张图片'); });
+  for(const f of list){
+    if(!f||!f.type||!f.type.startsWith('image/')) continue;
+    if(f.size > 10*1024*1024){ showToast('图片过大（>10MB）'); continue; }
+    const out = await compressImage(f);
+    if(!out) continue;
+    pending.push({src:out.src, name:f.name||('image_'+Date.now()+guessExt(f.type))});
+    renderThumbs();
+  }
+  if(pending.length) showToast('已添加 '+pending.length+' 张图片');
 }
 
 /* ============ MQTT ============ */
 function connectToMQTT(){
-  if(client){ try{ client.end(true); }catch(e){} client = null; }
+  if(client){ try{ client.end(true); }catch(e){} client=null; }
 
   myNickname = nicknameIn.value.trim() || '匿名';
   myRoomId   = roomIdIn.value.trim() || 'room1';
@@ -307,25 +414,28 @@ function connectToMQTT(){
   renderHistory();
 
   statusText.textContent = '正在连接...';
-  statusText.className = 'status';
+  statusText.className='status';
 
   client = mqtt.connect(MQTT_BROKER, {
     clientId: 'web_'+Math.random().toString(16).substr(2,8),
-    clean: true, connectTimeout: 10000, reconnectPeriod: 3000, keepalive: 60
+    clean: true,
+    connectTimeout: 10000,
+    reconnectPeriod: 3000,
+    keepalive: 60,
   });
 
-  var topic = 'chat/'+myRoomId;
-  var topicHist = 'chat/'+myRoomId+'/history';
+  const topic     = 'chat/'+myRoomId;
+  const topicHist = 'chat/'+myRoomId+'/history';
 
-  client.on('connect', function(){
+  client.on('connect', ()=>{
     isConnected = true;
-    statusText.textContent = '✅ 已连接，订阅中...';
-    statusText.className = 'status online';
+    statusText.textContent='✅ 已连接，订阅中...';
+    statusText.className='status online';
 
-    var subList = SYNC_HISTORY ? [topic, topicHist] : [topic];
-    client.subscribe(subList, function(err){
+    const subList = SYNC_HISTORY ? [topic, topicHist] : [topic];
+    client.subscribe(subList, err=>{
       if(!err){
-        statusText.textContent = '✅ 已进入：'+myRoomId;
+        statusText.textContent='✅ 已进入：'+myRoomId;
         if(!hasJoined){
           hasJoined = true;
           client.publish(topic, JSON.stringify({
@@ -335,18 +445,19 @@ function connectToMQTT(){
         }
         if(SYNC_HISTORY) publishHistory();
       }else{
-        statusText.textContent = '❌ 订阅失败：'+err.message;
+        statusText.textContent='❌ 订阅失败：'+err.message;
       }
     });
   });
 
-  client.on('message', function(recvTopic, payload){
-    var data;
-    try{ data = JSON.parse(payload.toString()); }catch(e){ return; }
+  client.on('message', (recvTopic, payload)=>{
+    let data;
+    try{ data = JSON.parse(payload.toString()); }
+    catch(e){ return; }
 
     if(SYNC_HISTORY && recvTopic === topicHist){
       if(!Array.isArray(data)) return;
-      data.forEach(function(m){
+      data.forEach(m=>{
         if(!m||!m.id) return;
         addMessage({
           id:m.id, sender:m.sender, text:m.text,
@@ -370,18 +481,18 @@ function connectToMQTT(){
     });
   });
 
-  client.on('error', function(err){ statusText.textContent = '❌ 错误：'+err.message; });
-  client.on('close', function(){ if(isConnected) statusText.textContent = '⚠️ 断开，重连中...'; });
-  client.on('reconnect', function(){ statusText.textContent = '正在重新连接...'; });
+  client.on('error', err=>{ statusText.textContent='❌ 错误：'+err.message; });
+  client.on('close', ()=>{ if(isConnected) statusText.textContent='⚠️ 断开，重连中...'; });
+  client.on('reconnect', ()=>{ statusText.textContent='正在重新连接...'; });
 }
 
 function publishHistory(){
   if(!SYNC_HISTORY || !client || !isConnected) return;
-  var topicHist = 'chat/'+myRoomId+'/history';
-  var recent = history.slice(-30);
-  var imgBudget = 2;
-  var data = recent.map(function(m){
-    var keepImg = imgBudget > 0 && m.images && m.images.length;
+  const topicHist = 'chat/'+myRoomId+'/history';
+  const recent = history.slice(-30);
+  let imgBudget = 2;
+  const data = recent.map(m=>{
+    const keepImg = imgBudget>0 && m.images && m.images.length;
     if(keepImg) imgBudget--;
     return {
       id:m.id, sender:m.sender, text:m.text||'',
@@ -394,25 +505,25 @@ function publishHistory(){
 
 function send(){
   if(!client || !isConnected){ showToast('连接已断开，正在重连...'); connectToMQTT(); return; }
-  var text = inputEl.value.trim();
-  if(!text && pending.length === 0) return;
+  const text = inputEl.value.trim();
+  if(!text && pending.length===0) return;
 
-  var imgs = pending.slice();
-  pending = []; renderThumbs();
-  inputEl.value = ''; autoGrow();
+  const imgs = pending.slice();
+  pending=[]; renderThumbs();
+  inputEl.value=''; autoGrow();
 
-  var msg = {
+  const msg = {
     id: makeId(), sender: myNickname, text: text,
     images: imgs, isMe: true, timestamp: Date.now()
   };
   addMessage(msg);
 
-  var payload = JSON.stringify({
+  const payload = JSON.stringify({
     type:'message', id:msg.id, sender:myNickname,
     senderId: client.options.clientId,
     text: text, images: imgs, timestamp: msg.timestamp
   });
-  client.publish('chat/'+myRoomId, payload, {qos:0}, function(err){
+  client.publish('chat/'+myRoomId, payload, {qos:0}, err=>{
     if(err) showToast('发送失败');
     else publishHistory();
   });
@@ -420,37 +531,35 @@ function send(){
 
 /* ============ 交互 ============ */
 function autoGrow(){
-  inputEl.style.height = 'auto';
+  inputEl.style.height='auto';
   inputEl.style.height = Math.min(inputEl.scrollHeight, 100)+'px';
 }
 inputEl.addEventListener('input', autoGrow);
-inputEl.addEventListener('keydown', function(e){
-  if(e.key === 'Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); send(); }
+inputEl.addEventListener('keydown', e=>{
+  if(e.key==='Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); send(); }
 });
 sendBtn.addEventListener('click', send);
-fileInput.addEventListener('change', function(e){ handleFiles(e.target.files); fileInput.value = ''; });
-pickBtn.addEventListener('click', function(e){ e.stopPropagation(); e.preventDefault(); fileInput.click(); });
-
-/* 清空按钮：不弹浏览器确认框，直接清 + toast 提示 */
-clearBtn.addEventListener('click', function(){ clearHistory(); showToast('已清空当前房间历史'); });
+fileInput.addEventListener('change', e=>{ handleFiles(e.target.files); fileInput.value=''; });
+pickBtn.addEventListener('click', e=>{ e.stopPropagation(); e.preventDefault(); fileInput.click(); });
+clearBtn.addEventListener('click', ()=>{ if(confirm('确定清空本机记录？')) clearHistory(); });
 
 nicknameIn.addEventListener('change', connectToMQTT);
 roomIdIn.addEventListener('change', connectToMQTT);
-nicknameIn.addEventListener('keydown', function(e){ if(e.key === 'Enter') connectToMQTT(); });
-roomIdIn.addEventListener('keydown', function(e){ if(e.key === 'Enter') connectToMQTT(); });
+nicknameIn.addEventListener('keydown', e=>{ if(e.key==='Enter') connectToMQTT(); });
+roomIdIn.addEventListener('keydown', e=>{ if(e.key==='Enter') connectToMQTT(); });
 
-document.addEventListener('paste', function(e){
-  var items = e.clipboardData && e.clipboardData.items;
+document.addEventListener('paste', e=>{
+  const items = e.clipboardData && e.clipboardData.items;
   if(!items) return;
-  var files = [];
-  for(var i = 0; i < items.length; i++){
-    if(items[i].kind === 'file'){ var f = items[i].getAsFile(); if(f) files.push(f); }
+  const files=[];
+  for(let i=0;i<items.length;i++){
+    if(items[i].kind==='file'){ const f=items[i].getAsFile(); if(f) files.push(f); }
   }
   if(files.length){ e.preventDefault(); handleFiles(files); }
 });
 
-['dragenter','dragover'].forEach(function(ev){ document.addEventListener(ev, function(e){ e.preventDefault(); }); });
-document.addEventListener('drop', function(e){
+['dragenter','dragover'].forEach(ev=>document.addEventListener(ev, e=>e.preventDefault()));
+document.addEventListener('drop', e=>{
   e.preventDefault();
   if(e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
 });
