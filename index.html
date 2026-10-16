@@ -61,7 +61,6 @@
   .join-row input:focus{border-color:var(--primary)}
   .status{font-size:11px;color:var(--muted)}
   .status.online{color:#22c55e}
-  /* ★ 在线人数徽章 */
   .presence{
     margin-left:auto;font-size:11px;font-weight:500;
     color:var(--primary);background:#e8f3ff;
@@ -75,8 +74,18 @@
   }
   .clear-btn:active{background:#ffe9e9;color:#d64545}
 
+  /* ★★★ 消息区包裹层：用于承载悬浮按钮 ★★★ */
+  .msg-wrap{
+    flex:1 1 auto;
+    min-height:0;
+    position:relative;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+  }
   .messages{
-    flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    flex:1 1 auto;min-height:0;
+    overflow-y:auto;-webkit-overflow-scrolling:touch;
     padding:12px;display:flex;flex-direction:column;gap:12px;
   }
   .msg{display:flex;gap:6px;align-items:flex-start;animation:fadeIn .22s ease}
@@ -111,6 +120,32 @@
   }
   .img-wrap img{width:110px;height:110px;object-fit:cover;display:block}
 
+  /* ★★★ 悬浮在消息区右侧的上下箭头 ★★★ */
+  .nav-float{
+    position:absolute;
+    right:8px;
+    bottom:14px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    z-index:50;
+  }
+  .nav-btn{
+    width:38px;height:38px;border-radius:50%;
+    background:rgba(0,0,0,.5);
+    color:#fff;font-size:15px;
+    display:grid;place-items:center;
+    user-select:none;cursor:pointer;
+    -webkit-backdrop-filter:blur(6px);
+    backdrop-filter:blur(6px);
+    box-shadow:0 2px 8px rgba(0,0,0,.25);
+    transition:transform .12s,background .15s;
+  }
+  .nav-btn:active{
+    background:rgba(11,147,246,.85);
+    transform:scale(.9);
+  }
+
   .composer{
     flex:0 0 auto;background:var(--panel);border-top:1px solid var(--border);
     padding:8px 10px;
@@ -140,16 +175,6 @@
     background:var(--primary);color:#fff;font:inherit;font-size:14px;font-weight:500;
     cursor:pointer;
   }
-
-  /* ★★★ 上下滚动按钮 ★★★ */
-  .nav-btn{
-    flex:0 0 32px;width:32px;height:36px;border-radius:9px;
-    background:#f0f2f5;color:#555;font-size:13px;
-    cursor:pointer;display:grid;place-items:center;user-select:none;
-    transition:background .15s,color .15s;
-  }
-  .nav-btn:active{background:#cfe4ff;color:#0b93f6;transform:scale(.95)}
-
   #toast{
     position:fixed;left:50%;bottom:80px;transform:translate(-50%,10px);z-index:999;
     background:rgba(0,0,0,.8);color:#fff;font-size:12px;padding:7px 12px;
@@ -196,14 +221,19 @@
     </div>
   </div>
 
-  <main class="messages" id="messages"></main>
+  <!-- ★★★ 消息区 + 悬浮上下箭头 ★★★ -->
+  <div class="msg-wrap">
+    <main class="messages" id="messages"></main>
+    <div class="nav-float">
+      <div class="nav-btn" id="upBtn" title="上翻">▲</div>
+      <div class="nav-btn" id="downBtn" title="下翻">▼</div>
+    </div>
+  </div>
 
   <footer class="composer">
     <div class="thumbs" id="thumbs"></div>
     <div class="input-row">
       <div class="icon-btn" id="pickBtn">🖼️</div>
-      <div class="nav-btn" id="upBtn" title="上翻">▲</div>
-      <div class="nav-btn" id="downBtn" title="下翻">▼</div>
       <input type="file" id="fileInput" accept="image/*" multiple hidden>
       <textarea id="input" rows="1" placeholder="输入消息…"></textarea>
       <button class="send-btn" id="sendBtn">发送</button>
@@ -220,7 +250,6 @@ const SYNC_HISTORY = true;
 const MAX_IMG_SIDE = 1024;
 const JPEG_QUALITY = 0.75;
 
-/* ★ 在线人数相关配置 */
 const PRESENCE_TOPIC = 'chat/global/presence';
 const HEARTBEAT_MS   = 15000;
 const PEER_TIMEOUT   = 45000;
@@ -737,7 +766,7 @@ window.addEventListener('beforeunload', ()=>{ try{ stopHeartbeat(); }catch(e){} 
 window.addEventListener('load', connectToMQTT);
 autoGrow();
 
-/* ============ ★★★ 上下滚动按钮 ★★★ ============ */
+/* ============ ★★★ 悬浮上下箭头 逻辑 ★★★ ============ */
 (function(){
   const upBtn   = document.getElementById('upBtn');
   const downBtn = document.getElementById('downBtn');
@@ -750,9 +779,7 @@ autoGrow();
   function startScroll(dir){
     stopScroll();
     scrollTimer = setInterval(function(){
-      const before = messagesEl.scrollTop;
-      messagesEl.scrollTop = before + dir * 25;
-      // 到顶/到底自动停
+      messagesEl.scrollTop += dir * 25;
       if(dir < 0 && messagesEl.scrollTop <= 0) stopScroll();
       if(dir > 0 && messagesEl.scrollTop + messagesEl.clientHeight >= messagesEl.scrollHeight - 1) stopScroll();
     }, 25);
@@ -764,20 +791,22 @@ autoGrow();
   function bind(btn, dir){
     function down(e){
       e.preventDefault();
+      e.stopPropagation();
       isLongPress = false;
       clearTimeout(longPressTimer);
       longPressTimer = setTimeout(function(){
         isLongPress = true;
         startScroll(dir);
-      }, 320);          // 长按 320ms 进入连续滚动
+      }, 320);
     }
     function up(e){
+      e.preventDefault();
+      e.stopPropagation();
       clearTimeout(longPressTimer);
       if(isLongPress){
         isLongPress = false;
         stopScroll();
       }else{
-        // 短按：滚一屏
         messagesEl.scrollTop += dir * messagesEl.clientHeight * 0.85;
       }
     }
