@@ -46,7 +46,10 @@
   body{
     font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
     background:var(--bg);color:var(--text);
-    display:flex;flex-direction:column;height:100vh;overflow:hidden;
+    display:flex;flex-direction:column;
+    height:100vh;
+    height:100dvh;              /* ★ 移动端键盘/地址栏变化时更稳定 */
+    overflow:hidden;
   }
   .join-panel{
     flex:0 0 auto;display:flex;flex-direction:column;gap:6px;
@@ -54,9 +57,17 @@
   }
   .join-panel h1{margin:0;font-size:14px;font-weight:600}
   .join-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  /* ★ 输入框固定高度：窄屏换行时也不会被拉伸变高 */
   .join-row input{
-    flex:1;min-width:80px;padding:6px 8px;border:1px solid var(--border);
-    border-radius:6px;font:inherit;font-size:13px;outline:none;
+    flex:1 1 90px;
+    min-width:0;
+    height:32px;
+    align-self:center;
+    padding:0 8px;
+    border:1px solid var(--border);
+    border-radius:6px;
+    font:inherit;font-size:13px;line-height:1.2;
+    outline:none;background:#fff;
   }
   .join-row input:focus{border-color:var(--primary)}
   .status{font-size:11px;color:var(--muted)}
@@ -78,12 +89,14 @@
   .messages-wrap{
     flex:1 1 auto;position:relative;overflow:hidden;
     display:flex;flex-direction:column;
+    min-height:0;               /* ★ 关键：允许被压缩，避免撑破父容器 */
   }
 
   .messages{
     flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;
     padding:12px;padding-right:56px;   /* ★ 给右侧悬浮按钮留位置 */
     display:flex;flex-direction:column;gap:12px;
+    min-height:0;
   }
   .msg{display:flex;gap:6px;align-items:flex-start;animation:fadeIn .22s ease}
   .msg.me{flex-direction:row-reverse}
@@ -163,12 +176,24 @@
     flex:0 0 36px;width:36px;height:36px;border-radius:10px;
     background:#f0f2f5;font-size:18px;cursor:pointer;display:grid;place-items:center;user-select:none;
   }
+  /* ★ textarea 固定初始高度 + 高度上限，窄屏时不会因为换行被顶得老高 */
   textarea{
     flex:1 1 auto;min-width:0;resize:none;border:1px solid var(--border);
     border-radius:10px;padding:8px 10px;font:inherit;font-size:14px;
-    line-height:1.4;max-height:100px;outline:none;background:#fafbfc;color:inherit;
+    line-height:1.4;
+    height:36px;
+    min-height:36px;
+    max-height:100px;
+    overflow-y:auto;
+    outline:none;background:#fafbfc;color:inherit;
   }
   textarea:focus{border-color:var(--primary);background:#fff}
+  /* ★ 小屏收紧上限：一行字换行也不至于占掉半屏 */
+  @media (max-width:420px){
+    textarea{max-height:64px}
+    .messages{padding-right:48px}
+    .join-row input{flex:1 1 70px}
+  }
   .send-btn{
     flex:0 0 auto;height:36px;padding:0 14px;border:0;border-radius:10px;
     background:var(--primary);color:#fff;font:inherit;font-size:14px;font-weight:500;
@@ -727,9 +752,18 @@ function send(){
 }
 
 /* ============ 交互 ============ */
+
+/* ★ 关键修复：高度上限跟随 CSS 的 max-height（含媒体查询），
+     窗口变窄 / 旋转屏幕时重算，输入框不会被挤得很高 */
 function autoGrow(){
-  inputEl.style.height='auto';
-  inputEl.style.height = Math.min(inputEl.scrollHeight, 100)+'px';
+  if(!inputEl) return;
+  inputEl.style.height = 'auto';
+  const cs = getComputedStyle(inputEl);
+  const maxH = parseFloat(cs.maxHeight) || 100;
+  const minH = parseFloat(cs.minHeight) || 36;
+  const h = Math.max(minH, Math.min(inputEl.scrollHeight, maxH));
+  inputEl.style.height = h + 'px';
+  inputEl.style.overflowY = (inputEl.scrollHeight > maxH) ? 'auto' : 'hidden';
 }
 inputEl.addEventListener('input', autoGrow);
 inputEl.addEventListener('keydown', e=>{
@@ -763,6 +797,10 @@ document.addEventListener('drop', e=>{
   e.preventDefault();
   if(e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
 });
+
+/* ★ 窗口尺寸变化（挤压 / 旋转 / 键盘弹出）时重算输入框高度 */
+window.addEventListener('resize', autoGrow);
+window.addEventListener('orientationchange', ()=>setTimeout(autoGrow, 200));
 
 window.addEventListener('beforeunload', ()=>{ try{ stopHeartbeat(); }catch(e){} });
 
