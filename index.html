@@ -48,7 +48,7 @@
     background:var(--bg);color:var(--text);
     display:flex;flex-direction:column;
     height:100vh;
-    height:100dvh;              /* ★ 移动端键盘/地址栏变化时更稳定 */
+    height:100dvh;              /* 适配移动端地址栏变化 */
     overflow:hidden;
   }
   .join-panel{
@@ -57,9 +57,10 @@
   }
   .join-panel h1{margin:0;font-size:14px;font-weight:600}
   .join-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-  /* ★ 输入框固定高度：窄屏换行时也不会被拉伸变高 */
+  
   .join-row input{
     flex:1 1 90px;
+    width:0; /* 防止内容撑开 */
     min-width:0;
     height:32px;
     align-self:center;
@@ -85,16 +86,16 @@
   }
   .clear-btn:active{background:#ffe9e9;color:#d64545}
 
-  /* ★ 消息区包一层，方便定位悬浮按钮 */
   .messages-wrap{
-    flex:1 1 auto;position:relative;overflow:hidden;
+    flex:1 1 0%; /* 确保消息区占据剩余的所有空间 */
+    position:relative;overflow:hidden;
     display:flex;flex-direction:column;
-    min-height:0;               /* ★ 关键：允许被压缩，避免撑破父容器 */
+    min-height:0; /* 关键：允许 flex 子项收缩，防止撑破布局 */
   }
 
   .messages{
-    flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;
-    padding:12px;padding-right:56px;   /* ★ 给右侧悬浮按钮留位置 */
+    flex:1 1 0%;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    padding:12px;padding-right:56px;
     display:flex;flex-direction:column;gap:12px;
     min-height:0;
   }
@@ -130,33 +131,20 @@
   }
   .img-wrap img{width:110px;height:110px;object-fit:cover;display:block}
 
-  /* ★★★ 悬浮上下按钮：固定在消息区右下角 ★★★ */
   .nav-stack{
-    position:absolute;
-    right:10px;
-    bottom:20px;
-    z-index:50;
-    display:flex;
-    flex-direction:column;
-    gap:8px;
-    pointer-events:none;   /* 只让按钮本身接收点击 */
+    position:absolute;right:10px;bottom:20px;z-index:50;
+    display:flex;flex-direction:column;gap:8px;pointer-events:none;
   }
   .nav-btn{
-    pointer-events:auto;
-    width:38px;height:38px;
-    border-radius:50%;
-    background:rgba(255,255,255,.92);
-    color:#0b93f6;
-    font-size:14px;
-    display:grid;place-items:center;
+    pointer-events:auto;width:38px;height:38px;border-radius:50%;
+    background:rgba(255,255,255,.92);color:#0b93f6;
+    font-size:14px;display:grid;place-items:center;
     box-shadow:0 2px 8px rgba(0,0,0,.18);
     user-select:none;cursor:pointer;
     border:1px solid rgba(0,0,0,.05);
     transition:transform .12s, background .15s;
   }
-  .nav-btn:active{
-    background:#0b93f6;color:#fff;transform:scale(.92);
-  }
+  .nav-btn:active{background:#0b93f6;color:#fff;transform:scale(.92);}
 
   .composer{
     flex:0 0 auto;background:var(--panel);border-top:1px solid var(--border);
@@ -171,29 +159,37 @@
     border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;
     font-size:11px;line-height:1;cursor:pointer;display:grid;place-items:center;
   }
-  .input-row{display:flex;align-items:flex-end;gap:6px}
+  
+  .input-row{display:flex;align-items:flex-end;gap:6px;}
+  
   .icon-btn{
     flex:0 0 36px;width:36px;height:36px;border-radius:10px;
     background:#f0f2f5;font-size:18px;cursor:pointer;display:grid;place-items:center;user-select:none;
   }
-  /* ★ textarea 固定初始高度 + 高度上限，窄屏时不会因为换行被顶得老高 */
+  
+  /* ★ 核心修复：锁死输入框高度与宽度 */
   textarea{
-    flex:1 1 auto;min-width:0;resize:none;border:1px solid var(--border);
-    border-radius:10px;padding:8px 10px;font:inherit;font-size:14px;
+    flex:1 1 0%; /* 强制均分剩余空间，不受内容影响 */
+    width:0; /* 防止被内部的超长文本撑开宽度 */
+    min-width:0;
+    resize:none;
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:8px 10px;
+    font:inherit;
+    font-size:14px;
     line-height:1.4;
-    height:36px;
+    height:36px;      /* 强制初始高度 */
     min-height:36px;
-    max-height:100px;
-    overflow-y:auto;
-    outline:none;background:#fafbfc;color:inherit;
+    max-height:80px;  /* 绝对最大高度，最多约3行 */
+    outline:none;
+    background:#fafbfc;
+    color:inherit;
+    overflow-y:hidden; /* 超出时由JS接管或出滚动条 */
+    word-break:break-all;
   }
   textarea:focus{border-color:var(--primary);background:#fff}
-  /* ★ 小屏收紧上限：一行字换行也不至于占掉半屏 */
-  @media (max-width:420px){
-    textarea{max-height:64px}
-    .messages{padding-right:48px}
-    .join-row input{flex:1 1 70px}
-  }
+  
   .send-btn{
     flex:0 0 auto;height:36px;padding:0 14px;border:0;border-radius:10px;
     background:var(--primary);color:#fff;font:inherit;font-size:14px;font-weight:500;
@@ -245,17 +241,12 @@
     </div>
   </div>
 
-  <!-- ★ 消息区外层包一层，用于定位悬浮按钮 -->
   <div class="messages-wrap">
-
     <main class="messages" id="messages"></main>
-
-    <!-- ★★★ 悬浮上下按钮：固定消息区右下角 ★★★ -->
     <div class="nav-stack">
       <div class="nav-btn" id="upBtn" title="上翻">▲</div>
       <div class="nav-btn" id="downBtn" title="下翻">▼</div>
     </div>
-
   </div>
 
   <footer class="composer">
@@ -753,18 +744,21 @@ function send(){
 
 /* ============ 交互 ============ */
 
-/* ★ 关键修复：高度上限跟随 CSS 的 max-height（含媒体查询），
-     窗口变窄 / 旋转屏幕时重算，输入框不会被挤得很高 */
+/* ★ 核心修复：极简计算，绝不依赖 CSS 取值，防止获取到 NaN */
+const MAX_TEXTAREA_HEIGHT = 80; // 固定最大高度 80px
 function autoGrow(){
   if(!inputEl) return;
-  inputEl.style.height = 'auto';
-  const cs = getComputedStyle(inputEl);
-  const maxH = parseFloat(cs.maxHeight) || 100;
-  const minH = parseFloat(cs.minHeight) || 36;
-  const h = Math.max(minH, Math.min(inputEl.scrollHeight, maxH));
-  inputEl.style.height = h + 'px';
-  inputEl.style.overflowY = (inputEl.scrollHeight > maxH) ? 'auto' : 'hidden';
+  inputEl.style.height = '36px'; // 先重置为初始高度
+  const scrollH = inputEl.scrollHeight;
+  if (scrollH > MAX_TEXTAREA_HEIGHT) {
+    inputEl.style.height = MAX_TEXTAREA_HEIGHT + 'px';
+    inputEl.style.overflowY = 'auto';
+  } else {
+    inputEl.style.height = scrollH + 'px';
+    inputEl.style.overflowY = 'hidden';
+  }
 }
+
 inputEl.addEventListener('input', autoGrow);
 inputEl.addEventListener('keydown', e=>{
   if(e.key==='Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); send(); }
@@ -798,10 +792,8 @@ document.addEventListener('drop', e=>{
   if(e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
 });
 
-/* ★ 窗口尺寸变化（挤压 / 旋转 / 键盘弹出）时重算输入框高度 */
 window.addEventListener('resize', autoGrow);
 window.addEventListener('orientationchange', ()=>setTimeout(autoGrow, 200));
-
 window.addEventListener('beforeunload', ()=>{ try{ stopHeartbeat(); }catch(e){} });
 
 window.addEventListener('load', connectToMQTT);
