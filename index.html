@@ -1,5 +1,4 @@
 
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -52,61 +51,78 @@
     height:100dvh;
     overflow:hidden;
   }
-  .join-panel{
-    flex:0 0 auto;display:flex;flex-direction:column;gap:6px;
-    padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--border);
-  }
-  .join-panel h1{margin:0;font-size:14px;font-weight:600}
-  .join-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 
-  .join-row input{
-    flex:1 1 90px;
-    width:0;
-    min-width:0;
-    height:32px;
-    align-self:center;
-    padding:0 8px;
+  /* ★ 顶部横向单行布局，强制不换行，允许横向滑动 */
+  .join-panel{
+    flex:0 0 auto;
+    flex-shrink:0; /* ★ 绝对不被上下压缩 */
+    display:flex;
+    flex-wrap:nowrap; /* ★ 强制单行 */
+    align-items:center;
+    gap:6px;
+    padding:6px 10px;
+    background:var(--panel);
+    border-bottom:1px solid var(--border);
+    overflow-x:auto;
+    overflow-y:hidden;
+    -webkit-overflow-scrolling:touch;
+  }
+  .join-panel::-webkit-scrollbar{display:none}
+  
+  .join-panel .title-icon{
+    font-size:16px; font-weight:bold; color:var(--primary);
+    flex:0 0 auto;
+  }
+
+  /* 输入框固定宽度，不随屏幕缩小 */
+  .join-panel input{
+    flex:0 0 56px;
+    width:56px;
+    height:28px;
+    padding:0 6px;
     border:1px solid var(--border);
     border-radius:6px;
-    font:inherit;font-size:13px;line-height:1.2;
+    font:inherit;font-size:12px;line-height:1.2;
     outline:none;background:#fff;
   }
-  .join-row input:focus{border-color:var(--primary)}
-  .status{font-size:11px;color:var(--muted)}
-  .status.online{color:#22c55e}
-  .presence{
-    margin-left:auto;font-size:11px;font-weight:500;
+  .join-panel input:focus{border-color:var(--primary)}
+
+  .my-id{
+    flex:0 0 auto;
+    font-size:11px;font-weight:700;
+    letter-spacing:.5px;
     color:var(--primary);background:#e8f3ff;
-    padding:3px 8px;border-radius:10px;white-space:nowrap;
+    padding:3px 6px;border-radius:6px;
+    user-select:all;
+  }
+
+  .status{font-size:11px;color:var(--muted);flex:0 0 auto;}
+  .status.online{color:#22c55e}
+  
+  .presence{
+    flex:0 0 auto;
+    font-size:11px;font-weight:500;
+    color:var(--primary);background:#e8f3ff;
+    padding:3px 6px;border-radius:6px;
+    white-space:nowrap;
     transition:background .2s;
   }
   .presence.offline{color:var(--muted);background:#f0f2f5}
 
-  /* ★ 随机ID 标签 */
-  .my-id{
-    flex:0 0 auto;
-    align-self:center;
-    font-size:11px;font-weight:700;
-    letter-spacing:.5px;
-    color:var(--primary);background:#e8f3ff;
-    padding:4px 8px;border-radius:10px;
-    white-space:nowrap;
-    user-select:all;
-  }
-
   .clear-btn{
-    flex:0 0 auto;padding:5px 10px;border:1px solid var(--border);border-radius:6px;
+    flex:0 0 auto;
+    padding:4px 8px;border:1px solid var(--border);border-radius:6px;
     background:#f7f8fa;color:var(--muted);font:inherit;font-size:11px;cursor:pointer;
   }
   .clear-btn:active{background:#ffe9e9;color:#d64545}
 
+  /* 消息区域 */
   .messages-wrap{
     flex:1 1 0%;
     position:relative;overflow:hidden;
     display:flex;flex-direction:column;
     min-height:0;
   }
-
   .messages{
     flex:1 1 0%;overflow-y:auto;-webkit-overflow-scrolling:touch;
     padding:12px;padding-right:56px;
@@ -241,18 +257,15 @@
 </head>
 <body>
 
+  <!-- ★ 顶部已精简为单行横排，超宽可左右滑动 -->
   <div class="join-panel">
-    <h1>🌐 ◈ 聊天室</h1>
-    <div class="join-row">
-      <input type="text" id="nickname" placeholder="昵称" value="用户">
-      <span class="my-id" id="myIdTag" title="你的随机ID">#----</span>
-      <input type="text" id="roomId" placeholder="房间号" value="room1">
-    </div>
-    <div class="join-row">
-      <span class="status" id="statusText">连接中...</span>
-      <span class="presence" id="presenceText">👥 本房间 0 · 全部 0</span>
-      <button class="clear-btn" id="clearBtn" type="button">🗑 清空本机</button>
-    </div>
+    <span class="title-icon">◈</span>
+    <input type="text" id="nickname" placeholder="昵称" value="用户">
+    <span class="my-id" id="myIdTag" title="你的随机ID">#----</span>
+    <input type="text" id="roomId" placeholder="房间号" value="room1">
+    <span class="status" id="statusText">连接中</span>
+    <span class="presence" id="presenceText">👥 本0·全0</span>
+    <button class="clear-btn" id="clearBtn" type="button">🗑 清空</button>
   </div>
 
   <div class="messages-wrap">
@@ -290,7 +303,7 @@ const PRUNE_MS       = 10000;
 const MY_CLIENT_ID   = 'web_' + Math.random().toString(16).slice(2,10)
                              + Date.now().toString(36).slice(-4);
 
-/* ============ ★ 用户随机ID（浏览器内持久保存） ============ */
+/* ============ ★ 用户随机ID ============ */
 function getOrCreateShortId(){
   try{
     var id = localStorage.getItem('my_short_id');
@@ -325,11 +338,9 @@ const clearBtn    = document.getElementById('clearBtn');
 const presenceText= document.getElementById('presenceText');
 const myIdTag     = document.getElementById('myIdTag');
 
-/* 显示当前随机 ID */
 myIdTag.textContent = '#' + SHORT_ID;
 
 /* ============ ★ 链接屏蔽 ============ */
-/* 匹配 http(s)/ftp/file 协议链接、www 开头链接、常见域名裸链接 */
 const LINK_RE = /(?:https?|ftp|file):\/\/[^\s<>"'，。！？、；：（）【】《》「」\u4e00-\u9fa5]+|www\.[^\s<>"'，。！？、；：（）【】《》「」\u4e00-\u9fa5]+|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com|cn|net|org|io|co|me|tv|cc|top|xyz|info|biz|app|dev|link|site|online|tech|store|club|vip|pro|live|fun|shop|wang|ren|gov|edu|us|uk|jp|kr|de|fr|ru|hk|tw|sg|au|ca)(?::\d{1,5})?(?:\/[^\s<>"'，。！？、；：（）【】《》「」\u4e00-\u9fa5]*)?/gi;
 
 const LINK_PLACEHOLDER = '【链接已屏蔽】';
@@ -364,7 +375,6 @@ function dataURLtoBlob(dataUrl){
 function guessExt(t){ const m={'image/jpeg':'.jpg','image/jpg':'.jpg','image/png':'.png','image/gif':'.gif','image/webp':'.webp'}; return m[t]||'.png'; }
 function makeId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 
-/* ★ 根据昵称生成显示名（昵称 + #随机ID） */
 function buildDisplayName(rawNick){
   const base = String(rawNick || '').replace(/#[A-Z0-9]{4}$/,'').trim() || '匿名';
   return base + '#' + SHORT_ID;
@@ -373,7 +383,6 @@ function buildDisplayName(rawNick){
 function showConfirm(text, onYes, onNo){
   const mask = document.createElement('div');
   mask.className = 'confirm-mask';
-
   const box = document.createElement('div');
   box.className = 'confirm-box';
   box.innerHTML =
@@ -382,12 +391,9 @@ function showConfirm(text, onYes, onNo){
       '<button class="btn-no">取消</button>' +
       '<button class="btn-yes">确定</button>' +
     '</div>';
-
   mask.appendChild(box);
   document.body.appendChild(mask);
-
   function close(){ if (mask.parentNode) mask.parentNode.removeChild(mask); }
-
   box.querySelector('.btn-yes').addEventListener('click', ()=>{ close(); onYes && onYes(); });
   box.querySelector('.btn-no').addEventListener('click', ()=>{ close(); onNo && onNo(); });
   mask.addEventListener('click', e=>{ if (e.target === mask) { close(); onNo && onNo(); } });
@@ -482,7 +488,6 @@ function renderMessage(m){
       const src  = typeof img==='string'?img:(img.src||img.url||'');
       const name = (typeof img==='object'&&img.name)?img.name:'';
       if(!src) return;
-      // 只允许 data:/blob: 图片，屏蔽外链图片，防止绕过文本屏蔽
       if(!/^(data:|blob:)/i.test(src)) return;
       const holder = document.createElement('div');
       holder.className='img-wrap';
@@ -504,7 +509,6 @@ function addMessage(msg){
   if(!msg) return false;
   if(msg.id && seenIds.has(msg.id)) return false;
   if(msg.id) seenIds.add(msg.id);
-  // ★ 统一屏蔽：无论本地发送、远端接收还是历史同步，全部经过这里
   if(typeof msg.text === 'string' && msg.text) msg.text = sanitizeLinks(msg.text);
   history.push(msg);
   if(history.length > MAX_HISTORY*2) history = history.slice(-MAX_HISTORY);
@@ -652,7 +656,8 @@ function updatePresenceUI(){
   });
   if(isConnected){ total++; roomCount++; }
 
-  presenceText.textContent = '👥 本房间 ' + roomCount + ' · 全部 ' + total;
+  // 简化显示文字以适应一行
+  presenceText.textContent = '👥 本'+roomCount+'·全'+total;
   presenceText.classList.toggle('offline', !isConnected);
 }
 
@@ -661,7 +666,7 @@ function connectToMQTT(){
   if(client){ try{ client.end(true); }catch(e){} client=null; }
 
   myNickname    = nicknameIn.value.trim() || '匿名';
-  myDisplayName = buildDisplayName(myNickname);   // ★ 昵称 + #随机ID
+  myDisplayName = buildDisplayName(myNickname);
   myRoomId      = roomIdIn.value.trim() || 'room1';
   hasJoined  = false;
   isConnected = false;
@@ -672,7 +677,7 @@ function connectToMQTT(){
   loadHistory();
   renderHistory();
 
-  statusText.textContent = '正在连接...';
+  statusText.textContent = '连接中';
   statusText.className='status';
 
   client = mqtt.connect(MQTT_BROKER, {
@@ -694,13 +699,13 @@ function connectToMQTT(){
 
   client.on('connect', ()=>{
     isConnected = true;
-    statusText.textContent='✅ 已连接，订阅中...';
+    statusText.textContent='✅ 已连';
     statusText.className='status online';
 
     const subList = SYNC_HISTORY ? [topic, topicHist, PRESENCE_TOPIC] : [topic, PRESENCE_TOPIC];
     client.subscribe(subList, err=>{
       if(!err){
-        statusText.textContent='✅ 已进入：'+myRoomId;
+        statusText.textContent='✅ ' + myRoomId;
         if(!hasJoined){
           hasJoined = true;
           client.publish(topic, JSON.stringify({
@@ -712,7 +717,7 @@ function connectToMQTT(){
         updatePresenceUI();
         if(SYNC_HISTORY) publishHistory();
       }else{
-        statusText.textContent='❌ 订阅失败：'+err.message;
+        statusText.textContent='❌ 订阅失败';
       }
     });
   });
@@ -750,15 +755,15 @@ function connectToMQTT(){
     });
   });
 
-  client.on('error', err=>{ statusText.textContent='❌ 错误：'+err.message; });
+  client.on('error', err=>{ statusText.textContent='❌ 错误'; });
   client.on('close', ()=>{
     if(isConnected){
       isConnected = false;
-      statusText.textContent='⚠️ 断开，重连中...';
+      statusText.textContent='⚠️ 断开';
       updatePresenceUI();
     }
   });
-  client.on('reconnect', ()=>{ statusText.textContent='正在重新连接...'; });
+  client.on('reconnect', ()=>{ statusText.textContent='重连中'; });
 }
 
 function publishHistory(){
@@ -783,7 +788,6 @@ function send(){
   let text = inputEl.value.trim();
   if(!text && pending.length===0) return;
 
-  // ★ 发送前先屏蔽链接
   let linkBlocked = false;
   if(text && hasLink(text)){
     text = sanitizeLinks(text);
