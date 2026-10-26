@@ -52,32 +52,25 @@
     overflow:hidden;
   }
 
-  /* ★ 顶部横向单行布局，强制不换行，允许横向滑动 */
+  /* ★ 顶部：强制纯单行，高度固定，绝对不换行挤压 */
   .join-panel{
     flex:0 0 auto;
-    flex-shrink:0; /* ★ 绝对不被上下压缩 */
+    flex-shrink:0; /* 绝对禁止被上下压缩 */
     display:flex;
-    flex-wrap:nowrap; /* ★ 强制单行 */
+    flex-wrap:nowrap; /* ★ 绝对禁止换行 */
     align-items:center;
-    gap:6px;
-    padding:6px 10px;
+    gap:5px;
+    padding:6px 8px;
     background:var(--panel);
     border-bottom:1px solid var(--border);
-    overflow-x:auto;
-    overflow-y:hidden;
-    -webkit-overflow-scrolling:touch;
-  }
-  .join-panel::-webkit-scrollbar{display:none}
-  
-  .join-panel .title-icon{
-    font-size:16px; font-weight:bold; color:var(--primary);
-    flex:0 0 auto;
+    width: 100%;
   }
 
-  /* 输入框固定宽度，不随屏幕缩小 */
+  /* 输入框自适应变窄，但不会掉到下一行 */
   .join-panel input{
-    flex:0 0 56px;
-    width:56px;
+    flex:1 1 0%;     /* ★ 自动分配剩余宽度 */
+    min-width:0;     /* ★ 核心：允许缩小到极小 */
+    width:0;         /* 配合 flex 使用 */
     height:28px;
     padding:0 6px;
     border:1px solid var(--border);
@@ -90,13 +83,13 @@
   .my-id{
     flex:0 0 auto;
     font-size:11px;font-weight:700;
-    letter-spacing:.5px;
     color:var(--primary);background:#e8f3ff;
     padding:3px 6px;border-radius:6px;
     user-select:all;
+    white-space:nowrap;
   }
 
-  .status{font-size:11px;color:var(--muted);flex:0 0 auto;}
+  .status{font-size:11px;color:var(--muted);flex:0 0 auto;white-space:nowrap;}
   .status.online{color:#22c55e}
   
   .presence{
@@ -105,14 +98,14 @@
     color:var(--primary);background:#e8f3ff;
     padding:3px 6px;border-radius:6px;
     white-space:nowrap;
-    transition:background .2s;
   }
   .presence.offline{color:var(--muted);background:#f0f2f5}
 
   .clear-btn{
     flex:0 0 auto;
     padding:4px 8px;border:1px solid var(--border);border-radius:6px;
-    background:#f7f8fa;color:var(--muted);font:inherit;font-size:11px;cursor:pointer;
+    background:#f7f8fa;color:var(--muted);font:inherit;font-size:12px;cursor:pointer;
+    white-space:nowrap;
   }
   .clear-btn:active{background:#ffe9e9;color:#d64545}
 
@@ -198,24 +191,11 @@
   }
 
   textarea{
-    flex:1 1 0%;
-    width:0;
-    min-width:0;
-    resize:none;
-    border:1px solid var(--border);
-    border-radius:10px;
-    padding:8px 10px;
-    font:inherit;
-    font-size:14px;
-    line-height:1.4;
-    height:36px;
-    min-height:36px;
-    max-height:80px;
-    outline:none;
-    background:#fafbfc;
-    color:inherit;
-    overflow-y:hidden;
-    word-break:break-all;
+    flex:1 1 0%; width:0; min-width:0;
+    resize:none; border:1px solid var(--border); border-radius:10px;
+    padding:8px 10px; font:inherit; font-size:14px; line-height:1.4;
+    height:36px; min-height:36px; max-height:80px; outline:none;
+    background:#fafbfc; color:inherit; overflow-y:hidden; word-break:break-all;
   }
   textarea:focus{border-color:var(--primary);background:#fff}
 
@@ -257,15 +237,14 @@
 </head>
 <body>
 
-  <!-- ★ 顶部已精简为单行横排，超宽可左右滑动 -->
+  <!-- ★ 极简横排（无标题、无多行结构） -->
   <div class="join-panel">
-    <span class="title-icon">◈</span>
     <input type="text" id="nickname" placeholder="昵称" value="用户">
     <span class="my-id" id="myIdTag" title="你的随机ID">#----</span>
     <input type="text" id="roomId" placeholder="房间号" value="room1">
     <span class="status" id="statusText">连接中</span>
-    <span class="presence" id="presenceText">👥 本0·全0</span>
-    <button class="clear-btn" id="clearBtn" type="button">🗑 清空</button>
+    <span class="presence" id="presenceText">👥0</span>
+    <button class="clear-btn" id="clearBtn" type="button">🗑</button>
   </div>
 
   <div class="messages-wrap">
@@ -303,7 +282,7 @@ const PRUNE_MS       = 10000;
 const MY_CLIENT_ID   = 'web_' + Math.random().toString(16).slice(2,10)
                              + Date.now().toString(36).slice(-4);
 
-/* ============ ★ 用户随机ID ============ */
+/* ============ 用户随机ID ============ */
 function getOrCreateShortId(){
   try{
     var id = localStorage.getItem('my_short_id');
@@ -340,9 +319,8 @@ const myIdTag     = document.getElementById('myIdTag');
 
 myIdTag.textContent = '#' + SHORT_ID;
 
-/* ============ ★ 链接屏蔽 ============ */
+/* ============ 链接屏蔽 ============ */
 const LINK_RE = /(?:https?|ftp|file):\/\/[^\s<>"'，。！？、；：（）【】《》「」\u4e00-\u9fa5]+|www\.[^\s<>"'，。！？、；：（）【】《》「」\u4e00-\u9fa5]+|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com|cn|net|org|io|co|me|tv|cc|top|xyz|info|biz|app|dev|link|site|online|tech|store|club|vip|pro|live|fun|shop|wang|ren|gov|edu|us|uk|jp|kr|de|fr|ru|hk|tw|sg|au|ca)(?::\d{1,5})?(?:\/[^\s<>"'，。！？、；：（）【】《》「」\u4e00-\u9fa5]*)?/gi;
-
 const LINK_PLACEHOLDER = '【链接已屏蔽】';
 
 function hasLink(text){
@@ -588,7 +566,7 @@ async function handleFiles(files){
   if(pending.length) showToast('已添加 '+pending.length+' 张图片');
 }
 
-/* ============ ★ 在线人数（Presence） ============ */
+/* ============ 在线人数 ============ */
 const peers = new Map();
 let hbTimer = null, pruneTimer = null, lastHelloReply = 0;
 
@@ -656,8 +634,8 @@ function updatePresenceUI(){
   });
   if(isConnected){ total++; roomCount++; }
 
-  // 简化显示文字以适应一行
-  presenceText.textContent = '👥 本'+roomCount+'·全'+total;
+  // 极度精简文字，腾出空间
+  presenceText.textContent = '👥' + roomCount;
   presenceText.classList.toggle('offline', !isConnected);
 }
 
@@ -699,13 +677,13 @@ function connectToMQTT(){
 
   client.on('connect', ()=>{
     isConnected = true;
-    statusText.textContent='✅ 已连';
+    statusText.textContent='已连';
     statusText.className='status online';
 
     const subList = SYNC_HISTORY ? [topic, topicHist, PRESENCE_TOPIC] : [topic, PRESENCE_TOPIC];
     client.subscribe(subList, err=>{
       if(!err){
-        statusText.textContent='✅ ' + myRoomId;
+        statusText.textContent='在线'; // 用极简文字，避免撑破单行
         if(!hasJoined){
           hasJoined = true;
           client.publish(topic, JSON.stringify({
@@ -717,7 +695,7 @@ function connectToMQTT(){
         updatePresenceUI();
         if(SYNC_HISTORY) publishHistory();
       }else{
-        statusText.textContent='❌ 订阅失败';
+        statusText.textContent='失败';
       }
     });
   });
@@ -755,15 +733,15 @@ function connectToMQTT(){
     });
   });
 
-  client.on('error', err=>{ statusText.textContent='❌ 错误'; });
+  client.on('error', err=>{ statusText.textContent='错误'; });
   client.on('close', ()=>{
     if(isConnected){
       isConnected = false;
-      statusText.textContent='⚠️ 断开';
+      statusText.textContent='断开';
       updatePresenceUI();
     }
   });
-  client.on('reconnect', ()=>{ statusText.textContent='重连中'; });
+  client.on('reconnect', ()=>{ statusText.textContent='重连'; });
 }
 
 function publishHistory(){
@@ -818,7 +796,6 @@ function send(){
 }
 
 /* ============ 交互 ============ */
-
 const MAX_TEXTAREA_HEIGHT = 80;
 function autoGrow(){
   if(!inputEl) return;
@@ -873,7 +850,7 @@ window.addEventListener('beforeunload', ()=>{ try{ stopHeartbeat(); }catch(e){} 
 window.addEventListener('load', connectToMQTT);
 autoGrow();
 
-/* ============ ★★★ 悬浮按钮逻辑 ★★★ ============ */
+/* ============ 悬浮按钮逻辑 ============ */
 (function(){
   const upBtn   = document.getElementById('upBtn');
   const downBtn = document.getElementById('downBtn');
