@@ -48,7 +48,7 @@
     background:var(--bg);color:var(--text);
     display:flex;flex-direction:column;
     height:100vh;
-    height:100dvh;              /* 适配移动端地址栏变化 */
+    height:100dvh;
     overflow:hidden;
   }
   .join-panel{
@@ -57,10 +57,10 @@
   }
   .join-panel h1{margin:0;font-size:14px;font-weight:600}
   .join-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-  
+
   .join-row input{
     flex:1 1 90px;
-    width:0; /* 防止内容撑开 */
+    width:0;
     min-width:0;
     height:32px;
     align-self:center;
@@ -80,6 +80,19 @@
     transition:background .2s;
   }
   .presence.offline{color:var(--muted);background:#f0f2f5}
+
+  /* ★ 随机ID 标签 */
+  .my-id{
+    flex:0 0 auto;
+    align-self:center;
+    font-size:11px;font-weight:700;
+    letter-spacing:.5px;
+    color:var(--primary);background:#e8f3ff;
+    padding:4px 8px;border-radius:10px;
+    white-space:nowrap;
+    user-select:all;
+  }
+
   .clear-btn{
     flex:0 0 auto;padding:5px 10px;border:1px solid var(--border);border-radius:6px;
     background:#f7f8fa;color:var(--muted);font:inherit;font-size:11px;cursor:pointer;
@@ -87,10 +100,10 @@
   .clear-btn:active{background:#ffe9e9;color:#d64545}
 
   .messages-wrap{
-    flex:1 1 0%; /* 确保消息区占据剩余的所有空间 */
+    flex:1 1 0%;
     position:relative;overflow:hidden;
     display:flex;flex-direction:column;
-    min-height:0; /* 关键：允许 flex 子项收缩，防止撑破布局 */
+    min-height:0;
   }
 
   .messages{
@@ -159,18 +172,17 @@
     border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;
     font-size:11px;line-height:1;cursor:pointer;display:grid;place-items:center;
   }
-  
+
   .input-row{display:flex;align-items:flex-end;gap:6px;}
-  
+
   .icon-btn{
     flex:0 0 36px;width:36px;height:36px;border-radius:10px;
     background:#f0f2f5;font-size:18px;cursor:pointer;display:grid;place-items:center;user-select:none;
   }
-  
-  /* ★ 核心修复：锁死输入框高度与宽度 */
+
   textarea{
-    flex:1 1 0%; /* 强制均分剩余空间，不受内容影响 */
-    width:0; /* 防止被内部的超长文本撑开宽度 */
+    flex:1 1 0%;
+    width:0;
     min-width:0;
     resize:none;
     border:1px solid var(--border);
@@ -179,17 +191,17 @@
     font:inherit;
     font-size:14px;
     line-height:1.4;
-    height:36px;      /* 强制初始高度 */
+    height:36px;
     min-height:36px;
-    max-height:80px;  /* 绝对最大高度，最多约3行 */
+    max-height:80px;
     outline:none;
     background:#fafbfc;
     color:inherit;
-    overflow-y:hidden; /* 超出时由JS接管或出滚动条 */
+    overflow-y:hidden;
     word-break:break-all;
   }
   textarea:focus{border-color:var(--primary);background:#fff}
-  
+
   .send-btn{
     flex:0 0 auto;height:36px;padding:0 14px;border:0;border-radius:10px;
     background:var(--primary);color:#fff;font:inherit;font-size:14px;font-weight:500;
@@ -232,6 +244,7 @@
     <h1>🌐 ◈ 聊天室</h1>
     <div class="join-row">
       <input type="text" id="nickname" placeholder="昵称" value="用户">
+      <span class="my-id" id="myIdTag" title="你的随机ID">#----</span>
       <input type="text" id="roomId" placeholder="房间号" value="room1">
     </div>
     <div class="join-row">
@@ -276,8 +289,23 @@ const PRUNE_MS       = 10000;
 const MY_CLIENT_ID   = 'web_' + Math.random().toString(16).slice(2,10)
                              + Date.now().toString(36).slice(-4);
 
+/* ============ ★ 用户随机ID（浏览器内持久保存） ============ */
+function getOrCreateShortId(){
+  try{
+    var id = localStorage.getItem('my_short_id');
+    if(id && /^[A-Z0-9]{4}$/.test(id)) return id;
+    id = (Math.random().toString(36).slice(2,6) + '0000').slice(0,4).toUpperCase();
+    localStorage.setItem('my_short_id', id);
+    return id;
+  }catch(e){
+    return (Math.random().toString(36).slice(2,6) + '0000').slice(0,4).toUpperCase();
+  }
+}
+const SHORT_ID = getOrCreateShortId();
+
 let client = null;
 let myNickname = '';
+let myDisplayName = '';
 let myRoomId = '';
 let isConnected = false;
 let hasJoined = false;
@@ -294,6 +322,28 @@ const roomIdIn    = document.getElementById('roomId');
 const pickBtn     = document.getElementById('pickBtn');
 const clearBtn    = document.getElementById('clearBtn');
 const presenceText= document.getElementById('presenceText');
+const myIdTag     = document.getElementById('myIdTag');
+
+/* 显示当前随机 ID */
+myIdTag.textContent = '#' + SHORT_ID;
+
+/* ============ ★ 链接屏蔽 ============ */
+/* 匹配 http(s)/ftp/file 协议链接、www 开头链接、常见域名裸链接 */
+const LINK_RE = /(?:https?|ftp|file):\/\/[^\s<>"'，。！？、；：（）【】《》「」\u4e00-\u9fa5]+|www\.[^\s<>"'，。！？、；：（）【】《》「」\u4e00-\u9fa5]+|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com|cn|net|org|io|co|me|tv|cc|top|xyz|info|biz|app|dev|link|site|online|tech|store|club|vip|pro|live|fun|shop|wang|ren|gov|edu|us|uk|jp|kr|de|fr|ru|hk|tw|sg|au|ca)(?::\d{1,5})?(?:\/[^\s<>"'，。！？、；：（）【】《》「」\u4e00-\u9fa5]*)?/gi;
+
+const LINK_PLACEHOLDER = '【链接已屏蔽】';
+
+function hasLink(text){
+  if(!text) return false;
+  LINK_RE.lastIndex = 0;
+  const r = LINK_RE.test(text);
+  LINK_RE.lastIndex = 0;
+  return r;
+}
+function sanitizeLinks(text){
+  if(!text) return text;
+  return String(text).replace(LINK_RE, LINK_PLACEHOLDER);
+}
 
 /* ============ 工具 ============ */
 function scrollToBottom(){ requestAnimationFrame(()=>{ messagesEl.scrollTop = messagesEl.scrollHeight; }); }
@@ -312,6 +362,12 @@ function dataURLtoBlob(dataUrl){
 }
 function guessExt(t){ const m={'image/jpeg':'.jpg','image/jpg':'.jpg','image/png':'.png','image/gif':'.gif','image/webp':'.webp'}; return m[t]||'.png'; }
 function makeId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+
+/* ★ 根据昵称生成显示名（昵称 + #随机ID） */
+function buildDisplayName(rawNick){
+  const base = String(rawNick || '').replace(/#[A-Z0-9]{4}$/,'').trim() || '匿名';
+  return base + '#' + SHORT_ID;
+}
 
 function showConfirm(text, onYes, onNo){
   const mask = document.createElement('div');
@@ -425,6 +481,8 @@ function renderMessage(m){
       const src  = typeof img==='string'?img:(img.src||img.url||'');
       const name = (typeof img==='object'&&img.name)?img.name:'';
       if(!src) return;
+      // 只允许 data:/blob: 图片，屏蔽外链图片，防止绕过文本屏蔽
+      if(!/^(data:|blob:)/i.test(src)) return;
       const holder = document.createElement('div');
       holder.className='img-wrap';
       const im = document.createElement('img');
@@ -445,6 +503,8 @@ function addMessage(msg){
   if(!msg) return false;
   if(msg.id && seenIds.has(msg.id)) return false;
   if(msg.id) seenIds.add(msg.id);
+  // ★ 统一屏蔽：无论本地发送、远端接收还是历史同步，全部经过这里
+  if(typeof msg.text === 'string' && msg.text) msg.text = sanitizeLinks(msg.text);
   history.push(msg);
   if(history.length > MAX_HISTORY*2) history = history.slice(-MAX_HISTORY);
   renderMessage(msg);
@@ -533,7 +593,7 @@ function publishPresence(type){
     client.publish(PRESENCE_TOPIC, JSON.stringify({
       type: type || 'presence',
       clientId: MY_CLIENT_ID,
-      nickname: myNickname,
+      nickname: myDisplayName,
       room: myRoomId,
       timestamp: Date.now()
     }), {qos:0});
@@ -545,7 +605,7 @@ function startHeartbeat(){
   try{
     client.publish(PRESENCE_TOPIC, JSON.stringify({
       type:'hello', clientId:MY_CLIENT_ID,
-      nickname:myNickname, room:myRoomId, timestamp:Date.now()
+      nickname:myDisplayName, room:myRoomId, timestamp:Date.now()
     }), {qos:0});
   }catch(e){}
   hbTimer    = setInterval(()=>publishPresence('presence'), HEARTBEAT_MS);
@@ -599,8 +659,9 @@ function updatePresenceUI(){
 function connectToMQTT(){
   if(client){ try{ client.end(true); }catch(e){} client=null; }
 
-  myNickname = nicknameIn.value.trim() || '匿名';
-  myRoomId   = roomIdIn.value.trim() || 'room1';
+  myNickname    = nicknameIn.value.trim() || '匿名';
+  myDisplayName = buildDisplayName(myNickname);   // ★ 昵称 + #随机ID
+  myRoomId      = roomIdIn.value.trim() || 'room1';
   hasJoined  = false;
   isConnected = false;
 
@@ -642,7 +703,7 @@ function connectToMQTT(){
         if(!hasJoined){
           hasJoined = true;
           client.publish(topic, JSON.stringify({
-            type:'join', sender:myNickname,
+            type:'join', sender:myDisplayName,
             senderId: MY_CLIENT_ID, timestamp: Date.now()
           }), {qos:0});
         }
@@ -677,7 +738,7 @@ function connectToMQTT(){
     if(data.senderId && data.senderId === MY_CLIENT_ID) return;
 
     if(data.type === 'join'){
-      addSystemMessage('👤 '+data.sender+' 加入了房间');
+      addSystemMessage('👤 '+sanitizeLinks(data.sender||'')+' 加入了房间');
       return;
     }
 
@@ -708,7 +769,7 @@ function publishHistory(){
     const keepImg = imgBudget>0 && m.images && m.images.length;
     if(keepImg) imgBudget--;
     return {
-      id:m.id, sender:m.sender, text:m.text||'',
+      id:m.id, sender:m.sender, text:sanitizeLinks(m.text||''),
       images: keepImg ? m.images : [],
       timestamp:m.timestamp, isMe:false
     };
@@ -718,21 +779,28 @@ function publishHistory(){
 
 function send(){
   if(!client || !isConnected){ showToast('连接已断开，正在重连...'); connectToMQTT(); return; }
-  const text = inputEl.value.trim();
+  let text = inputEl.value.trim();
   if(!text && pending.length===0) return;
+
+  // ★ 发送前先屏蔽链接
+  let linkBlocked = false;
+  if(text && hasLink(text)){
+    text = sanitizeLinks(text);
+    linkBlocked = true;
+  }
 
   const imgs = pending.slice();
   pending=[]; renderThumbs();
   inputEl.value=''; autoGrow();
 
   const msg = {
-    id: makeId(), sender: myNickname, text: text,
+    id: makeId(), sender: myDisplayName, text: text,
     images: imgs, isMe: true, timestamp: Date.now()
   };
   addMessage(msg);
 
   const payload = JSON.stringify({
-    type:'message', id:msg.id, sender:myNickname,
+    type:'message', id:msg.id, sender:myDisplayName,
     senderId: MY_CLIENT_ID,
     text: text, images: imgs, timestamp: msg.timestamp
   });
@@ -740,15 +808,16 @@ function send(){
     if(err) showToast('发送失败');
     else publishHistory();
   });
+
+  if(linkBlocked) showToast('⚠️ 消息中的链接已自动屏蔽');
 }
 
 /* ============ 交互 ============ */
 
-/* ★ 核心修复：极简计算，绝不依赖 CSS 取值，防止获取到 NaN */
-const MAX_TEXTAREA_HEIGHT = 80; // 固定最大高度 80px
+const MAX_TEXTAREA_HEIGHT = 80;
 function autoGrow(){
   if(!inputEl) return;
-  inputEl.style.height = '36px'; // 先重置为初始高度
+  inputEl.style.height = '36px';
   const scrollH = inputEl.scrollHeight;
   if (scrollH > MAX_TEXTAREA_HEIGHT) {
     inputEl.style.height = MAX_TEXTAREA_HEIGHT + 'px';
